@@ -7,7 +7,7 @@ The source notes describe two distinct families:
 | Original platform | Supplied example | Guest/toolchain shape | Graphics path in the notes |
 |---|---|---|---|
 | Original Xbox | Conker: Live & Reloaded | x86 static recompilation with `xboxrecomp`; XBE parsing, function discovery, ABI analysis and lifted C | Original D3D8 writes NV2A pushbuffers; executor and `nv2a_vk` translate for Vulkan/NVK |
-| Xbox 360 | Call of Duty: Black Ops | PowerPC static recompilation using ReXGlue/XenonRecomp | Xenos PM4 translation into a native renderer/backend |
+| Xbox 360 | Call of Duty: Black Ops | PowerPC static recompilation using ReXGlue (XenonRecomp is a separate Xbox 360 recompiler family used by other ports) | Xenos PM4 translation into a native renderer/backend |
 
 Do not select a recompiler or renderer based on the shared console family name. The guest instruction set, graphics hardware and command format differ.
 
@@ -19,7 +19,7 @@ For this path, the notes describe `tools/regen.sh` for analysis/lifting and `swi
 
 ## Build host and containers
 
-The supplied projects use Linux/WSL or containers when large lifted code or a Linux Vulkan test target is more practical. A container can provide a repeatable compiler environment and isolate tool dependencies; mount the checkout at a stable path so CMake/Ninja caches remain valid. Give the container enough memory: large generated translation units can use 1–2 GB per compiler job in the cited Conker setup. Limit parallel jobs based on available RAM.
+The supplied projects use Linux/WSL or containers when large lifted code or a Linux Vulkan test target is more practical. A container can provide a repeatable compiler environment and isolate tool dependencies; mount the checkout at a stable path so CMake/Ninja caches remain valid. Give the container enough memory: large generated translation units can use 1–2 GB per compiler job in the cited BO1 setup, and the Conker build reports about 2 GB per link job with LTO. Limit parallel jobs based on available RAM.
 
 Use separate build directories for native and container builds, different drivers, or experimental flags. Preserve the exact unstripped ELF corresponding to every console NRO so crash addresses and profiler samples resolve against the correct build. Check the final NRO entry-point/link layout required by the selected loader.
 

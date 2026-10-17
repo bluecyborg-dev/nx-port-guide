@@ -36,7 +36,7 @@ The supplied Black Ops process builds with Docker. The stages are:
 3. Build the Horizon NVK driver with `mesa/build_mesa_docker.sh` when its source pin, patches or optimization level changes.
 4. Run `tools/build_nro.sh` for the incremental CMake/Ninja build inside `devkitpro/devkita64`, producing an NRO and symbol-bearing ELF.
 
-The detailed procedure documents `MESA_SDK`, `NRO_OUT`, `JOBS`, `PLAIN_MEMORY`, `CMAKE_EXTRA` and `IMAGE`, recommends an arm64 Docker image on Apple Silicon, and checks `_start` before packaging. The container needs enough memory for generated translation units; the source notes use four parallel jobs with Docker Desktop at about 8 GB. See [the Black Ops build process](platforms/xbox-360/black-ops/build-process.md) for setup, linking and troubleshooting details.
+The detailed procedure documents `MESA_SDK`, `NRO_OUT`, `JOBS`, `PLAIN_MEMORY`, `CMAKE_EXTRA` and `IMAGE`, recommends an arm64 Docker image on Apple Silicon, and, after the CMake build (which also packages the NRO with `nacptool` and `elf2nro`), fails the build unless `_start` is at address zero. The container needs enough memory for generated translation units; the source notes use four parallel jobs with Docker Desktop at about 8 GB. See [the Black Ops build process](platforms/xbox-360/black-ops/build-process.md) for setup, linking and troubleshooting details.
 
 ## Compare before reusing
 

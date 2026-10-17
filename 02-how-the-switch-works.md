@@ -36,7 +36,7 @@ Synchronous SD writes and network logging can stall every thread that shares a l
 
 The host graphics backend does not execute the original GPU instruction set directly. A compatibility renderer interprets or translates original graphics commands and emits Vulkan/NVK or another homebrew-supported backend. The renderer must reproduce resource formats, tiling, surface aliases, shader behavior, synchronization and presentation semantics.
 
-Vulkan on NVK is the backend used by the original-Xbox port notes and by the supplied BO1 notes. Eden was useful for GL checks in those projects but did not complete NVK submissions; use a real Switch for NVK correctness and performance. Driver behavior can vary with the exact Mesa-on-Horizon fork.
+Vulkan on NVK is the backend used by the original-Xbox port notes and by the supplied BO1 notes. The original-Xbox notes found Eden useful for GL checks, but it did not complete NVK submissions (the BO1 notes do not use Eden); use a real Switch for NVK correctness and performance. Driver behavior can vary with the exact Mesa-on-Horizon fork.
 
 GPU allocations and submissions can involve costly kernel/driver work. Pool or suballocate resources when measurements support it, release only after GPU use completes, keep queues/submits bounded, and avoid global barriers when a narrower dependency is correct. These are design constraints to measure, not universal tuning constants.
 

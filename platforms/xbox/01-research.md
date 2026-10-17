@@ -10,6 +10,15 @@ The source notes describe xboxrecomp as a static x86-to-C recompilation path. Th
 
 Important original-Xbox issues reported across the supplied ports include GPU fence and vblank behavior, PGRAPH/DPC handling, DirectSound/APU doorbells, x87 precision mode, x86 flag and SSE instruction semantics, unaligned atomics, missed indirect function entries, RAM mirrors, tiled framebuffer apertures, and time-stepping that assumed the Xbox's frame rate. These are mechanisms to investigate, not a fixed list of hooks for every title.
 
+## Runtime debug switches added during the Conker port
+
+These are xboxrecomp runtime features, independent of the title. Set them as environment variables on desktop builds, or as `KEY=VALUE` launch arguments / `*_env.txt` lines on Switch.
+
+| Switch | Effect |
+|---|---|
+| `RECOMP_FILE_TRACE=1` | logs every `NtCreateFile` the bridge handles: guest path, access mask, create disposition, create options, attributes, returned status and `Information` |
+| `RECOMP_FILE_TRACE=2` | the same, plus the code addresses found on the guest stack (innermost first: return addresses and stray code pointers), to find the game routine that issued the open |
+
 ## Reference ports in the supplied material
 
 | Port | Title | Reported result / useful evidence |
@@ -28,6 +37,9 @@ Numbers are historical source-note results, with differing clocks, build revisio
 - Audit every translated x86 instruction and flag path used by reachable code; x87 precision and atomics require special care on AArch64.
 - Test graphics palette formats, register combiners, texture stages, fog, immediate-mode attributes, surfaces and cube maps as the title uses them.
 - Review title region/video mode, language, filesystem partitions, save initialization, USB/input timing and network waits.
+- Check the kernel bridge's NT status codes against what titles branch on: `STATUS_OBJECT_PATH_NOT_FOUND` (missing parent, XAPI `ERROR_PATH_NOT_FOUND`) versus `STATUS_OBJECT_NAME_NOT_FOUND` (missing last component, `ERROR_FILE_NOT_FOUND`) for `NtQueryFullAttributesFile` and `NtCreateFile`. Conker's cache setup depends on the difference (see the [Conker logbook](conker/conker-logbook.md)).
+- Check the XBE image end against the runtime's fixed guest stack base: xboxrecomp's default `0x00780000` fits images ending below it (Burnout 3), but Conker's ends at `0x00891D20`, so its stacks and runtime data block overlapped `.data` until the base was moved to `0x00900000`.
+- On 64-bit hosts with a 48-bit user address space (aarch64 Linux), make sure guest base + `0xFFFFFFFF` fits: an OS-chosen base near the top of the address space leaves no room for the device apertures at `0xFD000000` and above.
 - Confirm guest simulation uses wall-clock elapsed time rather than a fixed step that slows when frames are missed.
 
 The Conker-specific target analysis, port plan and logbook live in [conker/](conker/). Full original source notes are preserved in [conker/source-notes/](conker/source-notes/).
