@@ -15,10 +15,19 @@ Treat these as inspection prompts rather than a universal hook checklist:
 - GPU fences, vblank timing, PGRAPH/DPC handling and presentation interval.
 - DirectSound/APU doorbells, DSP command handshakes and whether audio time advances movies.
 - Reachable x86 instruction, flag, x87 precision and SSE semantics; unaligned atomics and indirect function entries.
+- x87 stack-pointer operations in compiler-generated math. MSVC code can set a value aside with `fincstp` (move the stack top without popping) and read it back later as `st(6)`. xboxrecomp emitted `fincstp` as a comment, which shifted the stack in Conker's rotation-matrix builder: every roll matrix lost a row, the camera collapsed and the 3D scene went black on every back end (fixed in the lifter 2026-10-17). Grep the generated code for the translator's fallback comments, including the `FPU:` and `SSE:` prefixed ones.
+- Float arguments passed in XMM registers between the title's own functions (whole-program optimisation): the translated code must keep XMM registers as shared state across calls, which xboxrecomp does (thread-local `g_xmm*`).
 - RAM mirrors, tiled framebuffer apertures, D3D8 state and pushbuffer behavior actually used by the title.
 - Region/video mode, language, filesystem partitions, save initialization, USB/input timing and network waits.
 - Fixed-step simulation that may slow when frames are missed; prefer testing elapsed-time behavior in repeatable scenes.
 - NT status distinctions that guest code branches on, especially missing parent versus missing final path components.
+
+## Debugging xboxrecomp ports
+
+Runtime switches, log signals, tools and translator facts of the `xboxrecomp` toolkit are collected in the
+[xboxrecomp debug reference](02-xboxrecomp-debug-reference.md). The methods are in the shared guide:
+[testing and debugging](../../05-testing-and-debugging.md) and
+[debugging recompiled code](../../09-debugging-recompiled-code.md).
 
 ## Prior original-Xbox port references
 

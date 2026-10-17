@@ -20,6 +20,9 @@
 | Switch | Use |
 |---|---|
 | `RECOMP_FRAME_TRACE=<flag file>` | one frame of draws (state, textures, combiners, first vertices) |
+| `[FTRACE POS CPU]` (during frame trace) | CPU interpreter estimate for each submitted index, with viewport/depth bounds; not GPU readback |
+| `RECOMP_GL_DIRECT=0` | use converted guest attributes instead of direct-format reads for an A/B check |
+| `RECOMP_GL_VSH_TRACE=1` (OpenGL, with frame trace) | capture programmable VSH `oPos` and `gl_Position` through transform feedback for triangle draws to full-size surfaces |
 | `RECOMP_GL_DUMP=<prefix>[,N]`, `RECOMP_VK_DUMP_SURF`, `RECOMP_FB_DUMP_FLIPS` | frame / surface dumps |
 | `RECOMP_PAD_SCRIPT=<ms>:<btn>[:<hold>],...` / `RECOMP_PAD_LIVE=<file>` | drive menus without hands; with dumps on, "look at the latest frame, append a press" |
 | `RECOMP_WATCHDOG_SECS=<s>` (+ `RECOMP_WATCHDOG_KEEP=1`) | guest call stack on a hang (`tools/stackwalk.py`) |
@@ -29,6 +32,10 @@
 | `RECOMP_NX_PROFILE=1\|2` | sampling profiler ([06](06-performance.md)) |
 | `*_LOG_SYNC=1`, `*_NO_LOG=1`, `RECOMP_QUIET` | logging modes |
 | `XBOX_LOG_LEVEL`, `RECOMP_USB_STATS`, `RECOMP_RUMBLE_TRACE`, `B3_D3D_TRACE`-style hook traces | subsystem logs |
+
+The VSH capture is specific to the OpenGL backend and does not directly verify Vulkan or Switch output. If
+it agrees with the CPU estimate and positions are outside the view, inspect guest vertex inputs, VSH
+constants/program and camera state before changing clip or depth behavior.
 
 ## Bug classes to hunt for (grep the log and `gen/` on every bring-up step)
 

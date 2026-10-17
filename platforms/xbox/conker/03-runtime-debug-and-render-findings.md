@@ -4,16 +4,10 @@ This file collects diagnostics and behavior found while investigating Conker. Th
 
 ## Runtime debug switches
 
-These `xboxrecomp` runtime features were added during Conker work. Desktop builds accept environment variables; Switch builds accept `KEY=VALUE` launch arguments or lines in `*_env.txt`.
-
-| Switch | Effect |
-|---|---|
-| `RECOMP_FILE_TRACE=1` | Logs handled `NtCreateFile` calls with guest path, access mask, disposition, options, attributes, returned NT status and `Information`. |
-| `RECOMP_FILE_TRACE=2` | Adds guest stack code addresses (return addresses and other code pointers) to locate the routine issuing an open. |
-| `RECOMP_SKIP_DRAWS=<lo>-<hi>` | Drops the inclusive draw range for each frame; the counter starts at zero after each flip. Useful for bisecting a wrong frame. |
-| `RECOMP_SKIP_BLEND=<src>/<dst>` | Drops draws with the given hexadecimal NV2A blend-factor pair, e.g. `306/0` for `DST_COLOR`/`ZERO`. `RECOMP_SKIP_INLINE=1` drops inline-vertex draws. |
-| `RECOMP_PSH_DUMP=1` | Prints each new pixel-shader key (combiner stages and final combiner) and generated GLSL. |
-| `RECOMP_FRAME_TRACE=<flag file>` | Emits a one-frame draw trace after the flag file exists, including raw blend registers, texture-shader program, combiner control/factors, alpha test, surface format, fog state, `SET_CONTROL0`, `ZMIN_MAX_CONTROL` and clip range. |
+The `xboxrecomp` switches added or used during the Conker work (file trace, frame bisection, frame-trace
+fields, position and vertex-shader captures, depth probes, live pad input) are listed with every other
+toolkit switch in the [xboxrecomp debug reference](../02-xboxrecomp-debug-reference.md). They are not
+Conker-specific.
 
 ## Findings and open questions
 
@@ -22,6 +16,8 @@ These `xboxrecomp` runtime features were added during Conker work. Desktop build
 - **64-bit guest address reservation:** on aarch64 Linux with a 48-bit user address space, the chosen guest base plus `0xFFFFFFFF` must fit. An OS mapping near the top can leave no room for NV2A device apertures at `0xFD000000` and above.
 - **Clear-value format:** Conker traces showed an R5G6B5 target where `0xFFFF` means white. When the backend stores surfaces as ARGB8888, interpret a clear value using the guest surface format before widening it.
 - **Which surface to present:** present the last surface drawn in the frame, not merely the last surface touched; Conker clears off-screen surfaces after compositing.
-- **Depth-format hypothesis remains unconfirmed:** Conker traces showed `SET_CONTROL0 = 0x00100001`; the vendored header defines `Z_PERSPECTIVE_ENABLE` at bit 16 (clear) and does not define bit 20. Do not label this W-buffering without confirming hardware semantics.
+- **Black title/menu view: solved (2026-10-17).** Cause: the lifter emitted `fincstp` as a no-op. Conker's rotation-matrix builder `sub_003E2E60` (three `fsincos`, then `fincstp` to set `cos·scale` aside and read it back as `st(6)`) produced roll matrices with a zero first row; `sub_00046490` multiplies the camera look-at by that roll, so the view matrix collapsed and the world projected off screen. Found by testing per-draw model-view matrices for orthogonality, locating the camera matrix in guest RAM, gdb watchpoints and an x86 emulation of the suspects with captured inputs ([logbook](conker-logbook.md)). The investigation notes that follow are kept for the record.
+- **Investigation record (before the cause was found):** a corrected per-index OpenGL transform-feedback capture matched CPU `oPos` estimates on two traced world batches, and those positions project outside 640×480. Attributes, VSH program and constants are captured for a representative batch; compare these and the camera state with xemu before changing clip or depth rules. That batch's 33-slot program contains no MAC ARL instruction, so ARL rounding is not implicated in this sample. A final Linux Vulkan frame 2,100 capture remained black with opaque full-size depth comparisons forced to ALWAYS, so opaque depth rejection alone does not explain this view. The menu remains black; OpenGL readback does not directly validate Vulkan or Switch output. See the dated [logbook](conker-logbook.md).
+- **Depth-format hypothesis (not the cause):** Conker traces showed `SET_CONTROL0 = 0x00100001`; the vendored header defines `Z_PERSPECTIVE_ENABLE` at bit 16 (clear) and does not define bit 20. Do not label this W-buffering without confirming hardware semantics.
 
 The observations are evidence from this title's investigation, not assertions that every XBE uses the same stack layout, cache behavior or renderer patterns.

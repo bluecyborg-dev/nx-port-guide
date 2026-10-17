@@ -14,6 +14,7 @@
 - [ ] Guest RAM, aliases, stack, runtime data and device apertures have verified non-overlapping layouts.
 - [ ] Every executable section is covered and seeds point to real function boundaries.
 - [ ] Unsupported instructions and ABI/calling-convention assumptions are reviewed.
+- [ ] Every instruction the translator left untranslated is listed (grep the generated code for its fallback comments, whatever prefix they carry; see [debugging recompiled code](09-debugging-recompiled-code.md)) and each one is implemented or shown unreachable. Rare x87 stack operations count: `fincstp`/`fdecstp`, `fcmov*`, `ficom`, `fxtract`.
 - [ ] File paths, nested directories, save/cache creation and error codes are exercised from a fresh state.
 - [ ] Thread, event, timer, audio and input behavior are tested on the target host scheduler.
 - [ ] Network initialization cannot block offline play when the title's network service is unavailable.
@@ -22,6 +23,7 @@
 ## Graphics and gameplay
 
 - [ ] First world frame is inspected with a trace/capture.
+- [ ] If geometry is missing or off screen, the transform constants (camera and world matrices) are checked for orthogonal rows before clip, cull or depth handling is changed.
 - [ ] Surface formats, tiling, aliases, clears, resolves, depth and shader state are tested.
 - [ ] Menus, transitions, split-screen/multiple viewports, effects and representative gameplay areas are checked.
 - [ ] Controller labels, analog inputs, rumble, suspend/resume and display modes are reviewed where relevant.

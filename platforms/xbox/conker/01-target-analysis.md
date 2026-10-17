@@ -18,9 +18,9 @@
 
 | Part | Original Xbox | Consequence on the Switch |
 |---|---|---|
-| CPU | Intel Pentium III-class, 733 MHz, x87 + SSE (1), single core | Recompiled single-thread code on a 1020 MHz A57 is the usual limit. The game has no multi-core design to exploit, but its threads (audio mixer, streaming) still compete for the guest lock ([04](04-switch-platform.md)) |
-| GPU | NV2A (NV20/NV25 class), 233 MHz: vertex programs, register combiners (8 general + final), 4 texture stages with *texture shader* modes | Everything goes through the pushbuffer executor and `nv2a_vk` ([05](05-renderer.md)) |
-| Memory | 64 MB unified (retail); RAM mirrors at 0x0 and the 0x80000000 contiguous window; tiled framebuffer aperture at 0xF0000000 | Horizon cannot alias memory the way Windows/Linux can ([04](04-switch-platform.md), "Memory") |
+| CPU | Intel Pentium III-class, 733 MHz, x87 + SSE (1), single core | Recompiled single-thread code on a 1020 MHz A57 is the usual limit. The game has no multi-core design to exploit, but its threads (audio mixer, streaming) still compete for the guest lock (04 (conker-nx `docs/04-switch-platform.md`)) |
+| GPU | NV2A (NV20/NV25 class), 233 MHz: vertex programs, register combiners (8 general + final), 4 texture stages with *texture shader* modes | Everything goes through the pushbuffer executor and `nv2a_vk` (05 (conker-nx `docs/05-renderer.md`)) |
+| Memory | 64 MB unified (retail); RAM mirrors at 0x0 and the 0x80000000 contiguous window; tiled framebuffer aperture at 0xF0000000 | Horizon cannot alias memory the way Windows/Linux can (04 (conker-nx `docs/04-switch-platform.md`), "Memory") |
 | Audio | MCPX APU (voice processor, GP/EP DSPs) | xboxrecomp emulates the voice processor (from xemu, LGPL). There is no DSP56300: DirectSound's doorbell is acknowledged instead |
 | Storage | DVD + 8 GB HDD (save partitions, cache partitions) | Partitions map to folders; never pass guest memory to Horizon file IPC |
 
@@ -61,7 +61,7 @@ widescreen, and `AvSendTVEncoderOption(QUERY_AVPACK)` returns `AV_STANDARD_NTSC_
 
 ## Things to find out first (before any code)
 
-Run on the XBE (toolkit pipeline steps 3-6, see [02-approach.md](02-approach.md)) and write the answers here:
+Run on the XBE (toolkit pipeline steps 3-6, see 02-approach.md (conker-nx `docs/02-approach.md`)) and write the answers here:
 
 - [x] **Answered 2026-10-16** (`xbe_parser`, full report in `analysis/`, git-ignored):
       - Title ID **0x4D530051**, retail, built 2005-04-28, region **Rest of World** (PAL), media DVD_X2,
@@ -76,11 +76,11 @@ Run on the XBE (toolkit pipeline steps 3-6, see [02-approach.md](02-approach.md)
       build), plus XACTENLT (XACT audio engine), WMADEC, XVOICE/VOICMAIL, XONLINES. Same XDK as Burnout 3,
       NFSU2 and Carbon. The D3D code is laid out like Burnout's locally (ISR → vblank handler is 0x2D0
       in both), and the DSOUND bodies match Burnout's/Carbon's instruction for instruction. Hooks:
-      [09-bringup-log.md](09-bringup-log.md).
+      [09-bringup-log.md](conker-logbook.md).
 - [ ] Threads created at boot, XMV/other movie format, file formats on the disc.
 - [ ] Self-modifying code / runtime code generation (would break static recompilation).
 - [ ] Presentation interval (30 or 60 fps) and how the main loop steps simulation time (fixed steps per
       frame → slow motion below target, the Burnout/NFSU2 problem).
 - [ ] Which NV2A features the frames use: texture shader modes per stage, cube maps, stencil, point sprites,
       fixed-function lighting vs vertex programs. Answer it with `RECOMP_FRAME_TRACE` once something
-      draws ([07](07-debugging.md)).
+      draws ([07](../02-xboxrecomp-debug-reference.md)).

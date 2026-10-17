@@ -31,7 +31,7 @@ A manual native replacement or wrapper must document its calling convention, inp
 
 ## Graphics-debug order
 
-For a wrong frame, capture the command stream/frame trace and identify the first incorrect target or state. Check guest framebuffer address, format, tiling, aliasing, clear/resolve order and texture contents before changing shaders. Then inspect translated shader state and host API resource use. An image that looks wrong at the final output can originate in an earlier surface or data upload.
+For a wrong frame, capture the command stream/frame trace and identify the first incorrect target or state. Check guest framebuffer address, format, tiling, aliasing, clear/resolve order and texture contents before changing shaders. Then inspect translated shader state and host API resource use. An image that looks wrong at the final output can originate in an earlier surface or data upload. It can also originate in the CPU: geometry projected off screen on every back end usually means the title computed bad transform constants in translated code. Check that its camera and world matrices are well formed (orthogonal rows, equal row lengths) before changing clip, cull or depth rules ([testing and debugging](05-testing-and-debugging.md#graphics-correctness)).
 
 ## Data and provenance
 
