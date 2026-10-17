@@ -108,3 +108,54 @@ Build: NT-faithful directory statuses + Codex's seeds and small extended-VMA fal
 | Boot, fresh `Z:` cache and audio-bank caching work on hardware | The game builds `Z:\texture...`, copies `sfx_*`/`cut_cash` wave banks to `Z:\audio`; 12 small extended-VMA commits fell back to shared memory (`[NX] small commit ... uses shared memory`, code-memory views refused with `0xCE01`) | working |
 | Intro movie `dvddata\fmv\frontend\BootIntro.xmv` plays | 1.2 MB texture upload per frame, 10 draws; frames 50-117 ms early on (CPU-side XMV), `[fps] 28.5` at frame 366. The same movie renders correctly on the Linux bench (frame captures) | working; movie decode speed to look at later |
 | **After skipping the intro: black screen with occasional brief flashes** (user report) | The game keeps running its 3D front end: 540-860 draws per frame at a steady 20 FPS (`[hitch]` 50 ms frames), frame 2,720 when the user quit; no `[ICALL]`, `[STUB]` or crash. 90 s watchdog: main thread in normal work (4.9 M indirect calls) | **open: renderer**. Game logic and pad input work; the draws do not reach the screen. Next: reproduce on the Linux bench (pad script to skip the intro), dump frames and intermediate surfaces, and take a `RECOMP_FRAME_TRACE` of a front-end frame to find the first wrong target (off-screen target + composite, as Burnout's world was, or unimplemented NV2A texture-shader modes) |
+
+## 2026-10-17: black title screen on the Linux bench (renderer)
+
+Reproduced the console's "black after the intro" on Linux by letting the game idle after `BootIntro.xmv`:
+the in-engine title flythrough runs from about frame 3,700 to 6,500 (540–860 draws per frame), then
+`attract.xmv` plays. Tools: `tools/live_linux.sh` (game in the background, pad presses appended to a file,
+a frame dump every N flips) and the new draw-skip switches (see [07-debugging.md](07-debugging.md)).
+
+| # | Symptom | Cause / evidence | Status |
+|---|---|---|---|
+| 1 | Whole flythrough black | Bisection by blend mode: `RECOMP_SKIP_BLEND=306/0` (skip `DST_COLOR × ZERO` draws) brought the picture back. Those are three projected-shadow passes multiplying the screen by 128×128 / 64×64 shadow maps. The maps are **R5G6B5** surfaces (`SET_SURFACE_FORMAT` 0x07070213: colour format 3, swizzled 128×128) cleared with `0x0000FFFF`, white in R5G6B5; the renderer keeps every colour surface as ARGB8888 and used the raw value, so the maps were cyan (surface dump) and the multiply turned the scene black | **fixed**: `clear_color_argb()` in `nv2a_pb_exec.c` widens R5G6B5 / X1R5G5B5 clear values before the back end sees them. First flythrough frames (rainy cobblestones) now draw |
+| 2 | From frame ~4,300: a black 256×256 picture | Frame dumps were 341×256 instead of 853×480. `vk_flip()` presented `s_last`, the last surface drawn **or cleared**; after compositing its glow onto the back buffer the game clears its 256×256 glow target (`80CEC180`), so that was shown | **fixed**: `vk_flip()` presents the last surface drawn in the frame (`s_last_drawn`), falling back to the last one touched |
+| 3 | Still black (now full size), and even "good" frames only show the ground next to the camera | Forcing the back-buffer clear to red (temporary hack) gave red frames with only a vignette and rain: the scene geometry is **not rasterised at all**, not drawn black. Skipping every draw after the opaque ones (`RECOMP_SKIP_DRAWS=263-999`) changes nothing. Combiner, fog (linear, enabled, colour `FF43628F`, params 1/1), blend and depth state of the opaque draws are identical in a good frame (4,050) and a black one (4,847). Every scene draw has `SET_CONTROL0` = `0x00100001`; `SET_ZMIN_MAX_CONTROL` = 1. CPU vertex traces show scene `oPos.z` values around 14–27 M against clip max 16,777,215, and mostly negative actual `oPos.w` for some groups. | **open; cause under review**. Earlier bit-20/W-buffer interpretation was incorrect: the vendored header defines `Z_PERSPECTIVE_ENABLE` at bit 16, which is clear in this value; bit 20 is not defined there. Clear bit 16 may imply W-depth, but confirm semantics before implementing. The clip trace is 0..16,777,215. Plan in the conker-nx repo, `docs/14-port-status.md` |
+
+**Reassessment (2026-10-17):** the first diagnosis misidentified bit 20 of `SET_CONTROL0` as
+`Z_PERSPECTIVE_ENABLE`. The vendored header places that named bit at bit 16 (`0x00010000`), so the
+observed `0x00100001` has the named bit clear and bit 20 set but undocumented in that header. The trace
+does confirm the clip range and shows vertex-program output values beyond it, but does not by itself
+prove which depth representation the hardware is using or that depth clipping is the only cause. Compare
+the generated vertex output and clip conversion against xemu, and confirm the NV2A state semantics before
+changing depth behavior.
+
+The captured Linux frame has 499 back-buffer draw records. A count of the trace's first three vertices per
+draw found only 3 first vertices and 3 sampled first triangles inside the 640×480 x/y bounds; 337 first
+vertices had negative actual `oPos.w` (the trace prints `1/oPos.w`). This makes position/clip handling the
+next priority, but the current trace does not sample the rest of each draw and cannot prove that every
+mesh is offscreen.
+
+Draw structure of a flythrough frame (useful for later bisection): ~30 draws into the three shadow maps
+(`8224F900`, `82257980`, `8225FA00`), ~230 opaque scene draws into the back buffer (`80964000` /
+`80A90000`, alternating), ~270 alpha-blended ones, three `DST_COLOR × ZERO` shadow passes, then the glow
+chain: back buffer → 256×256 `80CEC180` → 128×128 `80D4C280` → blur into 128×256 `80D2C200` → added back
+with `ONE/ONE`, plus one `SRC_ALPHA/ONE` full-screen quad. The final combiner of the scene draws is
+`13030C00` = `fog.a·fog.rgb + (1 − fog.a)·R0`, i.e. Conker's fog alpha is the fog *amount*, the reverse of
+D3D's default final combiner (worth remembering if fog ever looks inverted).
+
+Also on 2026-10-17 (commit 6ab1239, before the renderer work above): the console log showed extended-VMA
+commits refused with `0xCE01` when the game re-commits a growing range from one base (12 KB, then 132, 144,
+192 KB at the same address). The Switch `VirtualAlloc` only recognises a range inside one existing mapping,
+so the second commit re-mapped pages already mapped. `extvma_commit()` in `guest_vmem.c` now commits whole
+2 MB granules once and keeps them; the Horizon shared-memory fallback ceiling went from 128 KB to 2 MB. NRO
+`analysis/elf_archive/conker-vulkan_dc06e7ee.nro` has it; not yet run on hardware.
+
+## 2026-10-17: console run of NRO `3f85b158` (commit d386a80)
+
+Log `run/net_logs/20261017-020541.log` (the first upload attempt, `-020451.log`, failed to connect: the
+NetLoader was not open yet). Boot and intro as before; after skipping the intro the screen stays **black with
+the menu music playing**. 20 FPS (50 ms frames, 605–669 draws), frame 1,553 reached (the user quit), no `[ICALL]`, `[STUB]` or
+exception. No `0xCE01` and no shared-memory fallback at all: the 2 MB extended-VMA granules (6ab1239) are
+verified on hardware. The black picture matches the unresolved Linux renderer problem; the depth/clip
+cause has not been established, so a console-specific cause remains possible.

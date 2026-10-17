@@ -2,6 +2,8 @@
 
 Treat each optimization as a measured experiment. The supplied port notes repeatedly show that a change that helps one title, scene or device mode can hurt another. Separate correctness changes from performance changes and leave a runtime switch or easy rollback path for risky experiments.
 
+For prior-project examples and their measurement caveats, see the [prior port research database](08-prior-port-research-database.md). This guide summarizes methods; title-specific conclusions remain with each port.
+
 ## Find the limiting stage first
 
 Measure main/guest CPU, renderer CPU, GPU work, storage stalls, synchronization waits and frame pacing separately. A frame pipeline overlaps CPU and GPU work, so do not add stage timings blindly; find which stage is on the critical path for the frames that miss their deadline.

@@ -25,7 +25,9 @@ Use full-memory title takeover when the port needs more memory than applet mode 
 
 ## Graphics correctness
 
-Capture one relevant frame or command trace and find the earliest incorrect operation. Compare intermediate render targets, not only the final screen. Check target address and format, tiled layout, aliasing, clear/resolve order, depth state, texture bytes/mips and shader inputs. A format census, raw guest-memory dump and pixel readback can distinguish bad source data from bad shader/renderer translation.
+Capture one relevant frame or command trace and find the earliest incorrect operation. Compare intermediate render targets, not only the final screen. Check target address and format, tiled layout, aliasing, clear/resolve order, depth state, texture bytes/mips and shader inputs. A format census, raw guest-memory dump and pixel readback can distinguish bad source data from bad shader/renderer translation. For command or MMIO traces, retain raw register values and verify each field mask against the matching hardware header or emulator source before assigning semantics; an incorrect bit label can create a false cause.
+
+When a frame is black or missing objects, bisect it: skip ranges of draws (or every draw with a given blend mode) and look at the result, which names the guilty pass in a few runs. Then tell "not rasterised" from "rasterised black" by temporarily forcing the clear colour to something loud (red): if the frame stays red, the geometry is being clipped or culled, and the cause is in transforms, clip/depth ranges or depth modes rather than in shading. Also check that the presented image has the back buffer's size; a wrong size means the wrong surface was presented.
 
 Use a deterministic menu/fade or scripted route for image comparisons. If a fast path has a verification mode, compare it to the original path on first use or for all uses while debugging. Dynamic memory should be snapshotted once per comparison; reading it twice while the game mutates it can create false mismatches.
 
