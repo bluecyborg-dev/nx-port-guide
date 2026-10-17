@@ -16,7 +16,7 @@ For any target, establish from its actual binary and runtime:
 
 ## Prior-project evidence
 
-The supplied survey includes ReXGlue projects (SA2, Futari and related titles), XenonRecomp projects (UnleashedRecomp and MarathonRecomp), and PM4/Mesa projects (The Simpsons Game and Def Jam). Their approaches are useful comparison points, not a single prescribed architecture. The [research database](../../08-prior-port-research-database.md) classifies the cross-project CPU, renderer, GPU, scheduling and testing findings with their reported scope and caveats.
+The supplied survey includes ReXGlue projects (SA2, Futari and related titles), XenonRecomp projects (UnleashedRecomp and MarathonRecomp), and PM4/Mesa projects (The Simpsons Game and Def Jam). The closest to Black Ops are the Prototype and Prototype 2 ports (2026-10): ReXGlue with the masseffect-nx SDK, a project8-lineage native renderer and the same mesa-switch commit. Both are playable, and they add the fourth CPU core, console-trained PGO and renderer hashing changes. Their approaches are useful comparison points, not a single prescribed architecture. The [research database](../../08-prior-port-research-database.md) classifies the cross-project CPU, renderer, GPU, scheduling and testing findings with their reported scope and caveats.
 
 ## Black Ops case study
 

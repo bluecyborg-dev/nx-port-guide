@@ -42,6 +42,7 @@ Do not add a dependency just because another port uses it. Check its license, ta
 - Keep generated code, game images/assets, NRO staging folders, profiles and captures out of source control unless explicitly suitable for distribution.
 - Use named configuration switches for performance experiments and log their effective values at startup.
 - Separate host-only stubs from code expected to run on Horizon.
+- When vendoring a toolkit from another port, search it for that port's identity: SD-card folders, title IDs, save and cache file names. A path that worked for the original port fails silently in the new one (Conker's shader cache went to Burnout 3's `sdmc:/switch/b3x/`, which did not exist, and nothing was ever cached). Make such paths a build setting of the title.
 - Keep patches and toolkit changes traceable to an upstream source or local fix; note which fork supplied merged behavior.
 - Maintain a small clean build and a repeatable full regeneration path. Do not hand-edit generated translation output.
 

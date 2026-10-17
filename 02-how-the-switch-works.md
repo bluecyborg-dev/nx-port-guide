@@ -10,6 +10,136 @@ CPU and GPU share 4 GB LPDDR4. Copies, vertex conversion, texture decoding and f
 
 A homebrew process launched as an applet has roughly 400 MB available in the supplied observations, while title takeover provides about 3.2 GB. Recompiled console games generally need full-memory launch mode.
 
+The three-core limit comes from the homebrew loader's permissions, not the hardware. The Prototype 2 port (2026-10) raises `highest_cpu_id` from 2 to 3 in both NPDM permission tables (ACID and ACI0), either in a HOME-menu NSP forwarder or in a patched `hbl.nsp`. Thread core masks then decide what runs on core 3; that port keeps audio there and the main thread on cores 1-3. System services still use core 3, so the fourth core is shared, not exclusive. A forwarder needs the user's own `prod.keys`; a patched `hbl.nsp` changes a system file on the SD card.
+
+## Engine, compatibility, and translation layers
+
+Think of a port as a path from game logic to Switch hardware. The game engine owns gameplay, animation,
+resource loading, rendering decisions, input interpretation, and audio mixing. It calls APIs supplied by
+its original platform or by its engine abstraction layer. A Switch port must either replace those calls
+with native Switch services or translate/emulate the behavior the game expects.
+
+| Layer | What it does | What it does not automatically do |
+|---|---|---|
+| Game engine and game code | Runs gameplay, scripts, menus, animation, resource management, and engine-side rendering/audio/input logic | It does not know that Horizon services or Switch controller/audio behavior are available unless a port connects them. |
+| Guest CPU translator or emulator | Executes original CPU instructions, or translates them into host instructions | It does not implement the original operating system, GPU, controller, audio device, or file system. |
+| Compatibility runtime | Implements guest memory, threads, synchronization, files, timers, audio/device calls, and error/status behavior | It cannot guess missing contracts safely; unsupported calls need evidence, tracing, and an explicit implementation. |
+| Device/API translation | Converts original graphics commands, input state, audio formats, or other device operations into host equivalents | It is separate from CPU translation; translated game code can run while graphics, input, or sound is still broken. |
+| Switch host layer | Uses libnx, Horizon services, selected libraries, and a graphics backend to reach the console hardware | libnx is the Switch system interface, not a replacement implementation of every original console API. |
+
+When engine source is available, gameplay and asset code may be reusable while its renderer, operating-
+system calls, media paths, and build configuration still need a Switch implementation. The engine name
+alone does not establish that a particular game can be built for Switch. With only a binary, CPU
+translation still leaves the engine's platform calls and device behavior to be supplied by the port.
+
+A source port usually adapts the engine's platform interface directly. A static recompiler translates CPU
+code but still needs the original platform APIs and devices implemented. An emulator interprets or
+translates CPU and device behavior as a coordinated runtime. Identify which of these layers a project
+already supplies before adding another translation layer. The [porting workflow](01-porting-workflow.md)
+describes how to choose the route for a particular executable.
+
+### Graphics: commands, resources, and presentation
+
+A game engine normally asks its graphics API to set state, bind resources, draw, resolve/copy targets,
+and present a frame. For a console GPU port, the path is approximately:
+
+1. Game/render code emits original API calls or a guest GPU command stream.
+2. The guest graphics layer decodes commands and reconstructs guest state: shader inputs, textures,
+   render targets, depth/blend/cull state, and synchronization.
+3. The renderer translates that state and the guest GPU's resource layout into host resources and commands.
+   This may include shader translation, texture untile/format conversion, vertex preparation, and resolves.
+4. A Switch-supported backend such as Vulkan/NVK submits work through Horizon's GPU services to the
+   Maxwell GPU; presentation then selects and displays the completed surface.
+
+The CPU recompiler and graphics translator solve different problems. Correctly translated CPU code can
+still feed the renderer wrong addresses or state. A renderer can submit valid Vulkan calls but still draw
+the wrong image if it misinterprets the guest format, tiling, aliases, shader constants, or resolve order.
+Conversely, a black or stale frame does not by itself prove that the game process crashed. Follow the data
+from guest command/address to translated resource, host draw, completed target, and presented surface.
+
+Common graphics responsibilities include:
+
+- **State translation:** convert guest registers/API state into host pipeline and dynamic state. Preserve
+  command ordering and invalidate cached state whenever a guest command changes it.
+- **Resource translation:** map guest addresses, dimensions, formats, pitches, tiling, and aliases to host
+  buffers/images. A copy or resolve must preserve the guest-visible contents and timing.
+- **Shader translation:** translate guest shader instructions and resource bindings to a form supported by
+  the selected Switch backend. Cache keys must include source code and translator/layout versions.
+- **Synchronization:** represent guest fences, render-target feedback, and ownership changes with host
+  barriers and fences. Missing synchronization can produce intermittent corruption; overly broad waits
+  can stall the game or audio.
+- **Presentation:** choose the correct completed image and honor the game's flip/vblank behavior. A valid
+  draw call is not proof that the intended image was presented.
+
+When graphics fail, first determine whether the game submitted work, whether the renderer emitted host
+commands, whether the GPU completed them, and which surface was presented. See [Switch performance](03-switch-performance.md)
+for the cost model and [testing and debugging](05-testing-and-debugging.md#graphics-correctness) for capture
+and comparison steps.
+
+### Input: map host controls to guest expectations
+
+The Switch exposes controller input through Horizon/libnx or a library such as Switch SDL2. A port reads
+that host state and converts it into the original game's controller representation or the engine's input
+abstraction. The mapping must preserve more than button names:
+
+- Button bit assignments and the distinction between pressed-this-frame, released-this-frame, and held.
+- Analog stick ranges, center/dead-zone handling, trigger values, and any original pressure-sensitive
+  controls.
+- Controller connection changes, player assignment, handheld/docked availability, and remapping options.
+- The game's input sampling cadence and the order in which input is updated relative to simulation and
+  frame presentation.
+
+Wrong mapping often appears as controls that do nothing, repeat unexpectedly, or feel delayed rather than
+as a crash. If the port crashes while polling, inspect initialization and controller-handle lifetime,
+input buffer sizes, and the guest API call/return contract. If inputs work in menus but not gameplay, check
+which engine path consumes the state and whether a held/edge-triggered value was cleared too early.
+
+### Audio: preserve format, timing, and thread behavior
+
+The engine may produce audio through a guest mixer/device API or through a source-port audio backend. A
+compatibility layer must turn that output into the format and buffers accepted by the Switch audio path,
+then keep them filled on schedule. Record sample rate, channel layout, sample format, buffer size, mixer
+cadence, and which thread owns each buffer. Convert formats explicitly rather than interpreting a buffer
+with the wrong sample type or stride.
+
+Audio is deadline-driven. A mixer that waits on the guest lock, a low-priority refill thread, a blocked log
+write, or a long renderer operation can miss buffer deadlines and cause crackle or silence while the game
+continues. A lock-order bug, invalid callback lifetime, or corrupt buffer can instead freeze or crash the
+process. Keep the audio callback/refill path bounded, avoid file/network I/O there, count underruns, and
+test with diagnostic tracing disabled because tracing itself can add enough work to cause gaps.
+
+### Files, memory, and timing are part of compatibility
+
+The game does not simply read files or allocate memory in abstract terms. It observes the original system's
+paths, access modes, error codes, alignment, address aliases, timing, blocking, and wakeup behavior. A
+missing directory may be a normal first-run condition; returning the wrong status can send the game into a
+fatal path. A guest buffer readable by the CPU may still be invalid as a Horizon IPC buffer. A wait that
+was cheap on the original system can become a busy loop that consumes a Switch core.
+
+For each boundary, trace the guest request and arguments, the host operation and result, and the value
+returned to the game. Keep the guest-visible contract consistent across success, partial completion,
+failure, and wakeup. The runtime details below cover memory mappings, IPC, scheduling, storage, and clocks.
+
+## What can crash, hang, or hide the game
+
+The symptom tells you where to start, but it does not prove the cause. Separate an abrupt process exit from
+a thread that stopped making progress and from a live game that is producing the wrong image or no sound.
+
+| Symptom | Common failure classes | First useful evidence |
+|---|---|---|
+| NRO fails before the game entry point | Invalid NRO/package metadata, wrong startup/link layout, missing library, failed libnx initialization, or memory budget too small for launch mode | Build output identity, loader/console log, startup symbol/layout, and launch mode. |
+| Exception or exit at a repeatable guest address | Unsupported/mistranslated instruction, wrong function boundary or ABI, invalid guest mapping, bad stack/TLS, or an incorrect manual hook | Exact NRO plus matching unstripped ELF, guest PC/registers, translated function, address map, and exception report. |
+| Crash only during loading or first use | Missing/corrupt asset, wrong file status/path, allocation/commit failure, shader/pipeline creation error, or resource lifetime bug | Per-open file trace, memory/pool counters, first-use shader log, and the last guest/renderer milestone. |
+| Process remains alive but stops progressing | Guest busy loop, lost wakeup, deadlock, thread starvation, blocking file/log/network operation, or GPU fence wait | Thread stacks/profiles, lock owner, wait object, last guest PC, queue/fence state, and log queue state. |
+| Game code progresses but image is black, stale, or incomplete | No draw submitted, bad guest render state, wrong target/format/tiling, shader/resource translation error, missing resolve, or wrong presentation surface | Guest draw/flip counters, emitted host commands, intermediate targets, dimensions/formats, and present selection. |
+| Game runs but controls do nothing or feel wrong | Host-to-guest button/range mapping, edge-versus-held handling, polling cadence, connection state, or input thread starvation | Raw host input next to mapped guest state and the guest poll/update call. |
+| Game runs with silence, crackle, or intermittent freeze | Unsupported audio format, buffer underrun, late refill, mixer/guest-lock contention, or logging/I/O on an audio path | Audio format/cadence, underrun count, callback thread timing, lock waits, and comparison with tracing disabled. |
+
+Treat crashes as boundary evidence, not just as a request to add a stub. Capture the exact build and first
+failure, reproduce it with the shortest route, and change one boundary at a time. For translated CPU
+failures, use [debugging recompiled code](09-debugging-recompiled-code.md); for visual failures, use the
+[graphics-debug order](01-porting-workflow.md#graphics-debug-order) and [testing guidance](05-testing-and-debugging.md).
+
 ## Horizon and libnx
 
 Horizon is not a desktop OS. Memory mappings, IPC buffers, thread scheduling, clocks, file access and GPU submission have console-specific costs and restrictions. A port may use libnx services and SDL for host startup, controller input, audio and windowing, but the game still expects its original operating-system and device semantics. The runtime supplies those semantics through compatibility bridges.
@@ -42,7 +172,7 @@ GPU allocations and submissions can involve costly kernel/driver work. Pool or s
 
 ### Clocks and presentation
 
-Use stock clocks as the performance baseline and record docked/handheld mode. Clock overrides can mask bottlenecks and interact with system clock tools. The supplied notes report that CPU boost mode sharply lowers the GPU clock, making it suitable for some loading work but not ordinary gameplay.
+Use stock clocks as the performance baseline and record docked/handheld mode. Clock overrides can mask bottlenecks and interact with system clock tools. The supplied notes report that CPU boost mode sharply lowers the GPU clock, making it suitable for some loading work but not ordinary gameplay. The Prototype ports found that keeping a temperature-sensor (`ts`) session open for the whole game coincided with Horizon OC's clock service crashing under load; avoid long-lived sensor polling.
 
 Presentation cadence is quantized by display refresh. Track frame intervals and missed refreshes, not only average FPS. More frames in flight can improve overlap but may increase input latency. Test queue depth, vsync and pacing in the same demanding scene.
 

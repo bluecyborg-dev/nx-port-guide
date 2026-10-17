@@ -28,7 +28,7 @@ Code-generation techniques such as register localization, direct calls, non-vola
 - Lower internal resolution only when GPU-bound. Pixel count is not GPU time: vertex work, bandwidth, resolves and fixed overhead remain.
 - Reduce expensive passes or selected effect-buffer resolution where the game can tolerate it. A setting that removes a system can leave stale shader inputs; verify frame output and game state.
 - Track render-target lifetimes, copies/resolves, barriers and attachment load/store behavior. Preserve guest-visible ordering and contents.
-- Cache shaders and prewarm known pipelines when cold compilation causes visible hitches. Keep cache keys tied to driver/device and translator versions.
+- Cache shaders and prewarm known pipelines when cold compilation causes visible hitches. Keep cache keys tied to driver/device and translator versions. Check that the cache is actually written and read back (the log should show programs and pipelines prewarmed on the second run): Conker's toolkit wrote its cache to the folder of the port it came from, which did not exist, so every run compiled from cold. On the console a cold compile at the start of a movie cost 4.3 s, and that is not only a hitch: the movie's audio stream, refilled from completion callbacks, starved once and never recovered.
 - Suballocate GPU resources from slabs when per-object allocation costs or handle limits are demonstrated. Retire allocations only after their GPU fence completes.
 - Cache streaming reads where repeated access is measured; do not shrink working memory blindly if that increases unload/reload churn.
 
@@ -216,6 +216,14 @@ Track the cost of instrumentation separately from production.
 - Use index bounds and the vertex shader's actual fetch range to copy only the source bytes a draw reads.
   A supplied project found that avoiding unused vertex data sharply reduced copy work. The exact
   shader-analysis method is guest-GPU-specific; verify fetch semantics before rebasing addresses.
+- Let the GPU convert vertex formats. A guest vertex layout the host cannot fetch as stored (packed
+  normals, three-component bytes or shorts, BGRA colours) tempts a per-vertex CPU conversion in the
+  translator, paid on every draw. Fetch the raw bytes through a format the host can read (one 32-bit lane
+  for a packed normal, four components instead of three, RGBA instead of BGRA) and undo the difference in
+  the generated vertex shader with per-draw flags in the uniform block. Ask the device which formats it
+  can fetch at start-up rather than assuming. In Conker (original Xbox, NVK) the CPU conversion of CMP
+  (11:11:10) normals and unfetchable formats was a fifth of the GPU executor's time; moving it into the
+  shader took the executor from about 80 % of a core to 43 % and gameplay from 20 to 30 FPS.
 - Snapshot mutable guest buffers at submit time if a worker will consume them later. Holding guest pointers
   and reading them after the game reuses the memory produced corrupted dynamic UI/movie geometry in a
   supplied port.

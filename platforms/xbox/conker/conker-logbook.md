@@ -3,25 +3,26 @@
 What was done to get Conker running, in order, with the evidence for each address. Newest at the bottom.
 Addresses are Conker PAL (title 0x4D530051) guest VAs.
 
-## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-17)
+## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-17: 30 FPS)
 
 Updated in the guide at major milestones only; the repo copy is the live one. Dated entries follow below.
 
-**Last milestone (2026-10-17):** **the front end renders and plays on the Linux bench.** The black title
-scene was a translator bug, not a renderer one: `fincstp` was emitted as a no-op, which broke the game's
-rotation-matrix builder and collapsed the camera (commit 1bc623e). The title tavern draws; Start, profile
-creation (saved to `UDATA`), the Xbox Live & Co menu, Dumbots → Solo → Beach Dead → team, class and lobby
-all work with pad input. Loading the level then stopped on an unresolved call, now seeded (see below).
+**Last milestone (2026-10-17):** **steady 30 FPS in gameplay on the console** (NRO `0678347d`, commit
+f67d461): vertex attributes the CPU used to convert per vertex are now fetched as stored and unpacked in the
+vertex shader, which took the GPU executor from about 80 % of a core to 43 %. The user found menu transitions
+much smoother and gameplay better and more stable. **Focus: the known issues (cutscene blur, loading
+screens), then more headroom** (60 FPS if possible, low input lag) without lowering quality.
 
-**Builds:** Linux bench `build/linux-vk/conker_recomp`. Newest Switch NRO
-`analysis/elf_archive/conker-vulkan_5c8b2369.{nro,elf}` (commit 1bc623e: the `fincstp` fix; built before the
-two level-load seeds), not yet run on hardware (the upload found the NetLoader closed).
+**Builds:** Linux bench conker-nx `build/linux-vk/conker_recomp`. Newest Switch NRO
+conker-nx `analysis/elf_archive/conker-vulkan_0f38c4dc.{nro,elf}` (the 30 FPS build plus the loading-screen present),
+not yet run on hardware.
 
-**Last hardware run (2026-10-17, NRO `3f85b158`, log `run/net_logs/20261017-020541.log`):** boots, plays
-the intro, intro skipped with a button press, then a **black screen with the menu music playing**. The front
-end runs at 20 FPS (steady 50 ms frames, 605–669 draws), reached frame 1,553 (the user quit) with no `[ICALL]`, `[STUB]`,
-exception or `0xCE01` in the log. The Switch and Linux both show the unresolved renderer issue; the
-current evidence does not establish that they share the same specific depth/clip cause.
+**Last hardware run (2026-10-17, NRO `0678347d`, log conker-nx `run/net_logs/20261017-152423.log`):** played by the
+user. 30.0 FPS in 34 of the run's 10-second windows and 29–30 in most others; menu transitions a lot
+smoother; gameplay better and more stable. Still there: very very minor stutters (not a focus), blurry
+cutscene shots, and no loading screen between sections (the game froze for a couple of seconds instead, for
+example entering the area with the first weapon in the training level). The emulated vblank counter read
+only 3–7 Hz in gameplay while the game held 30 FPS (see the performance issue below).
 
 ### Milestones
 
@@ -36,14 +37,17 @@ current evidence does not establish that they share the same specific depth/clip
 | 2026-10-17 | Title-screen 3D flythrough partly draws (shadow maps cleared white, right surface presented) | Linux |
 | 2026-10-17 | Front end runs on the console with its music and no memory errors (picture still black) | Switch |
 | 2026-10-17 | **Front end renders and is playable**: title tavern, profile created and saved, Dumbots level/team/class select and lobby | Linux |
+| 2026-10-17 | **Single-player campaign plays**: new game, the full opening, control in the training level | Linux |
+| 2026-10-17 | **The game plays on the console**: boot to the training level by hand, steady 20 FPS | Switch |
+| 2026-10-17 | Version 0.8 tagged (NRO `688d985e`): no audio static, tail and shadows right, caches work | Switch |
+| 2026-10-17 | **Steady 30 FPS in gameplay** (NRO `0678347d`, vertex attributes unpacked on the GPU) | Switch |
 
 **Priority (2026-10-17):** get to a visible, playable game scene as soon as possible. The Linux bench may use
 a different resolution or aspect ratio from the Switch; exact aspect-ratio matching can wait. The current
 640×480 back-buffer capture shows geometry projected far outside the view, so aspect ratio alone does not
 explain the black screen.
 
-Next milestones: first gameplay frame on Linux (Dumbots Beach Dead, then the single-player campaign); the
-front end on the console with the `fincstp` fix; first gameplay frame on the console.
+Next milestones: the known issues closed on the console; then 60 FPS and input latency.
 
 ### Known issues
 
@@ -76,18 +80,86 @@ and say how.
   - Fix (done 2026-10-17, commit 1bc623e): `fincstp`/`fdecstp` move `g_fp_top` (`lifter.py`, test in
     `test_lifter_fpu.py`). The title tavern renders. How it was found, step by step: 2026-10-17 entries in
     this logbook and [black-screen-investigation-summary.md](black-screen-investigation-summary.md).
-- [ ] **Level load stops on an unresolved call** (Linux, Dumbots → Beach Dead, 2026-10-17).
-  - Culprit: `[ICALL] Failed to resolve VA 0x00359E00`, then a null function pointer; the pushbuffer stopped.
-    `0x00359E00` follows a jump table and `int3` padding and tail-jumps to `0x00359FF0`, which starts right
-    after `sub_00359F80`'s `ret`. Neither was found by the static pass.
-  - Fix: both seeded in `config/seed_functions.json`; full regen done (21,284 of 21,286 functions). Rebuild,
-    load Beach Dead again, tick when the level plays.
+- [x] **Static ("heavy rain", TV noise) on menu selections, in cutscenes and in gameplay** (Switch and Linux).
+  Confirmed fixed on the console (NRO `688d985e`, 2026-10-17).
+  - Culprit: DirectSound gives the APU `MmGetPhysicalAddress()` of its buffers; for memory above RAM (the
+    extended-VMA range at `0x74000000`) that is the VA passed through, and `apu_phys()` masked it to 26
+    bits. A stream segment at `0x7415D7A0` was read from `0x0015D7A0`, the game's code, played as
+    full-scale noise.
+  - Fix (commit c130f84): addresses in `[0x08000000, 0x80000000)` are VAs. Linux capture: no noise left.
+- [ ] **Intro movie audio stops after under a second** (Switch and Linux). **Still silent on NRO
+  `688d985e`** (user report, 2026-10-17) with the shader cache in place; lower priority than performance.
+  - Culprit: the movie queues 0.8 s of audio (two ADPCM segments per channel) and only refills from
+    packet-completion callbacks. Its first frames stalled 4.3 s on the console compiling shaders and NVK
+    pipelines (0.5 s on Linux), the stream starved, and the player never refilled. The shader/pipeline
+    cache that should prevent the compiles was written to Burnout 3's folder `sdmc:/switch/b3x/`
+    (hard-coded in the toolkit), which does not exist: nothing was ever cached.
+  - Fix (commit 0d9fb5c): the cache folder is `XBOXRECOMP_SWITCH_DIR`, set to `sdmc:/switch/conker/`. If the
+    first frames still stall on a cold cache, prewarm or keep the APU fed during compiles.
+- [x] **Conker's tail draws magenta** (Switch and Linux).
+  - Culprit: the tail fur samples a 64×64 `SZ_A8Y8` and a 64×64 `SZ_G8B8` texture; neither had a decoder,
+    so both were uploaded as the undecodable-texture magenta.
+  - Fix (commit 9882f42): `AY8`, `A8Y8`, `G8B8`, `R8B8` decoders (xemu's channel placement). The tail is
+    orange fur with a white tip.
+- [x] **Two shadows following Conker / dark quads on the ground** (Switch and Linux).
+  - Culprit: the projected shadow maps are sampled clamp-to-border with border `0x00FFFFFF` (white = no
+    shadow); the Vulkan samplers always used transparent black, and the shadow passes multiply the scene
+    by the sample.
+  - Fix (commit d300139): the sampler takes the nearest fixed border colour, colour before alpha.
+- [ ] **Some cutscene shots blurry, some sharp** (Switch, user report). **Still there on NRO `688d985e`**:
+  the depth fix below did not solve it.
+  - Culprit: the depth of field reads the Z24S8 depth buffer as a `LIN_R8G8B8A8` texture to decide which
+    pixels to blur; depth lives in a Vulkan image and never reached guest memory, so the mask came from
+    stale bytes. (The hangover shot at the start of the training level is blurred on purpose.)
+  - Fix (commit 00f1cb4): a texture at a depth buffer's address is a colour image converted from the depth
+    on the GPU (R G B = the 24-bit depth's bytes). The title tavern now blurs its near foreground and keeps
+    the bar sharp; not yet compared with the original game.
+- [ ] **No loading screen between sections; the game looks frozen for a few seconds instead** (Switch,
+  user report on NRO `0678347d`: entering the area with the first weapon in the training level; the same
+  happens loading the training level from the profile menu on Linux). **Fixed on the Linux bench, verify
+  on the console** (NRO `0f38c4dc`).
+  - Culprit: Conker's loader never flips. Each loading step draws a progress-bar sliver into the back
+    buffer (`80964000`) and then copies the whole back buffer into the front one (`80A90000`, the buffer
+    the CRTC scans out) with a full-screen quad, a fence after each pair: 13,400 draws and one flip in 13.6
+    s on Linux. The hardware shows it because the CRTC reads the front buffer every vblank; the renderer
+    presented only on flips, so the last gameplay frame stayed up. Found with `RECOMP_SURF_STATS=1` (draws
+    per surface, control methods and draw runs of any frame over 2,000 draws) and
+    `RECOMP_FRAME_TRACE_DRAWS=3000-3011`.
+  - Fix: a draw into the scanned-out buffer (`PCRTC_START`, read by `xbox_Nv2aScanout()`) at least 100 ms
+    after the last flip presents that buffer, at most every 33 ms (`scanout_present()` in
+    `xboxrecomp/src/kernel/nv2a_pb_exec.c`; `RECOMP_SCANOUT_PRESENT=0` turns it off). The Linux bench now
+    shows the "Loading..." screen with its progress bar where it showed the menu frozen.
+- [ ] **Minor stutters in the menu and the intro movie** (Switch, user report; low priority). Still some
+  very minor stutters with the shader cache in place (NRO `688d985e`); "very very minor" on NRO
+  `0678347d`. Main-menu transitions were a bit slow; a lot smoother on NRO `0678347d`.
+  - Culprit: shader/pipeline compiles on first use (no cache until now) and `[hitch]` frames of 50–120 ms
+    in the movie.
+  - Fix: re-check with the cache in place.
+- [ ] **Level loads and cutscenes stop on unresolved calls** (Linux, 2026-10-17): Beach Dead (`0x00359E00`,
+  then `0x0019D3C0` in play, followed by a crash), the opening cutscene (`0x0014FE60` crashed it,
+  `0x00153340`). All seeded, plus 32 more from a static scan (`tools/hidden_entries`, which now also sees
+  entries after jump tables). The campaign ran from the opening to the training level clean; Beach Dead ran
+  two minutes of bot play clean (commit a6f9ff2). Tick once more levels load without `[ICALL]`.
+- [ ] **Intermittent freeze when changing class in the Dumbots class screen** (Linux, once in seven tries).
+  - Culprit: the main thread sleeps in D3D's GPU wait (`sub_0053C190`, BlockOnTime, called from
+    `sub_00218220` ← `sub_00208AA0` ← `sub_0028EAD0`) on the event the PGRAPH handler sets
+    (`device+0x1DCC`), while the GPU executor is idle with no work: the wake-up was lost. Happened right
+    after a class change started loading another model. Did not reproduce with `CONKER_D3D_TRACE=1` (six
+    tries), so it is timing-dependent.
+  - Fix: find the race between the "make space" NOP trap, its handling and the event (a set before the
+    wait, or a trap the executor never sees). Catch it with `RECOMP_WATCHDOG_SECS` and the executor's
+    pushbuffer pointers in the dump.
+- [ ] **Beach Dead's bunker interior is strongly red** (Linux observation, not reported by the user).
+  - Culprit: unknown; could be the level's own lighting, or a texture/combiner problem.
+  - Fix: compare with footage of the original first.
 - [ ] **Other x87 instructions the lifter leaves as comments** (`/* FPU: ... */` in `gen/`).
-  - Culprit: no translation for `fcmovnbe` (2 sites, `sub_00458494`), `ficom`/`ficomp` (`sub_0018DEC2`, looks
-    like data decoded as code), `fxtract` (`sub_00459020`), `fnsave`/`frstor` (`sub_004716D8`); `fbld` and
-    `fisttp` sit in data decoded as code. `fnclex` and `ffree` are harmless as no-ops.
-  - Fix: implement `fcmov*` and `fxtract` (CRT-area code, so likely reachable from math functions); check
-    whether `sub_0018DEC2` is real code before doing `ficom`.
+  - Done (commit 5fa8fb2): the `fcmov` family and `fxtract` (CRT math, `sub_00458494`, `sub_00459020`).
+  - Left: `ficom`/`ficomp` (`sub_0018DEC2`, looks like data decoded as code), `fnsave`/`frstor`
+    (`sub_004716D8`), `fbld`/`fisttp` (data decoded as code), `fnclex` (harmless).
+  - Fix: check whether `sub_0018DEC2` and `sub_004716D8` are reached before implementing them.
+- [ ] **A black band across the top of some frames** (Linux, title camera pan and the profile keyboard).
+  - Culprit: unknown; possibly part of a transition. Seen twice, not investigated.
+  - Fix: frame-trace a frame that shows it.
 - [x] **Switch: extended-VMA commits refused (`0xCE01`)** when a title re-commits a growing range from the
   same base.
   - Culprit: the Switch `VirtualAlloc` only recognises a range inside one existing mapping, so the larger
@@ -95,10 +167,23 @@ and say how.
   - Fix (done, verified on hardware 2026-10-17 with NRO `3f85b158`): 6ab1239 commits 2 MB granules once.
     The run logged no `0xCE01` and did not need the shared-memory fallback even once (the run with NRO
     `31500df5` used it 12 times).
-- [ ] **Switch front end runs at 20 FPS** (steady 50 ms frames, 540–860 draws; again 20 FPS with 605–669
-  draws on NRO `3f85b158`, while most of the scene is missing).
-  - Culprit: unknown until profiled; draw submission cost on NVK or the guest's own CPU time.
-  - Fix: `RECOMP_NX_PROFILE=1` on hardware once the picture is right; levers in conker-nx `docs/06-performance.md`.
+- [ ] **Frame rate drops when the camera moves** (Switch, NRO `688d985e`, user report). Not reported on NRO
+  `0678347d`; re-check when looking for 60 FPS.
+- [x] **Switch runs at 20 FPS** (front end 540–860 draws; gameplay in the training level 526 draws, steady
+  50 ms frames, NRO `e807fd88`). **30 FPS since NRO `0678347d`.**
+  - Culprit: the GPU executor, about 80 % of a core, spent a fifth of its time converting vertex
+    attributes on the CPU per vertex and draw: CMP (packed 11:11:10) normals through `fetch_attr` (~13 %)
+    and formats NVK cannot fetch through `attr_to_float4` (~9.5 %), each then copied again as 16 bytes.
+  - Fix (commit f67d461): the Vulkan back end fetches CMP normals as stored (one R32 lane, back-end flag
+    `NV2A_BACKEND_RAW_CMP`) and unpacks them in the vertex shader; unfetchable formats get a fetchable
+    neighbour plus a fix-up (three components fetched as four with w = 1, D3DCOLOR fetched as RGBA and
+    swapped), three per-draw masks applied by `nv2a_inputs()`. Executor 43 % of a core, game thread 59 %.
+- [ ] **60 FPS** (Switch). Headroom after the 30 FPS change: game thread ~59 % of a core, executor ~43 %.
+  - Culprit to check first: the emulated vblank counter read 3–7 Hz in gameplay on NRO `0678347d` (11–50
+    Hz in menus): the timer thread delivers vblanks late or the game paces itself another way. Then the
+    game thread's own hot functions (`tools/prof_log_report.py`).
+  - Fix: find what paces the frame (vblank, flip retire, the game's own timer) before optimising further;
+    levers in conker-nx `docs/06-performance.md` and [Switch performance](../../../03-switch-performance.md).
 - [ ] **Intro movie decodes slowly on Switch** (50–117 ms frames).
   - Culprit: CPU-side XMV decode and the YUV→RGB conversion in lifted code.
   - Fix: a native YUV converter as Burnout 3's port has; find Conker's converter first.
@@ -444,3 +529,140 @@ Other x87 instructions still emitted as `/* FPU: ... */`: `fcmovnbe` ×2 (`sub_0
 Lesson: a black or empty 3D view with every back end agreeing is a CPU-side bug until proven otherwise.
 Checking the model-view matrices for orthogonality would have pointed at the game's math a day earlier
 than the depth/clip probes did.
+
+## 2026-10-17: single-player campaign to the training level (Linux); hidden function entries
+
+With the `fincstp` fix the title tavern is the menu: left/right pans between "Xbox Live & Co" and the save
+slots ("Game 3" → New Game / Play, Erase). New game plays the opening in the engine: "A Rare Game / starring
+Conker and Berri", King Conker on the throne, the Bad Fur Day logo, Berri's house and phone, the bar, the
+castle at night, the Panther King; then `Level\TrainingLevel` loads and the stick moves Conker. The game
+saved Game 3 on its own. Conker himself draws as a purple blob; the level and other characters look right.
+
+Unresolved calls on the way, each a real function the static pass missed:
+
+| Address | Where it bit | Why it was missed |
+|---|---|---|
+| `0x00359E00` → `0x00359FF0` | Dumbots level load (Beach Dead): `[ICALL]`, then a null function pointer, pushbuffer stopped | after a jump table and `int3` padding; its tail-jump target starts right after a `ret` |
+| `0x0014FE60` | opening cutscene: crash in `sub_000D9950` reading `0xC3700014` | right after `sub_0014FE40`'s final `jmp [eax*4 + 0x597C58]`, so merged into it. Unresolved, its caller's stack slot kept a float (`0xC3700000` = −240.0) where a record pointer belonged |
+| `0x00153340` | opening cutscene, later | right after a `ret`, referenced from a vtable in `.rdata` |
+
+Rather than one regen per run, a static scan (`tools/hidden_entries`) lists every address referenced from
+data or code that sits after a `ret`/`jmp` inside a known function or in a gap between functions, and vets
+each one (referenced from outside its function, preceded by `ret`/`jmp`/`int3`/`nop`). 51 candidates, 32
+accepted: 15 functions reached through vtables, tables or code immediates (including three D3DX
+`this`-adjust thunks) and 17 SEH filter/handler blocks referenced from scope tables. Note for scanners: this
+XBE sets the executable flag (`0x4`) on `.rdata` and `.data`, so section flags cannot separate code from
+data; use the section names. Regen: 21,320 functions. After it the campaign ran from the opening to the
+training level with no `[ICALL]`.
+
+Console tooling for the performance work: the sampling profiler now also prints its 10 s window into the log
+(`[profile]` lines, hottest 128-byte code granules per thread; `tools/prof_log_report.py LOG ELF` sums them
+per function), and the 10 s `[perf]` report now runs under nxlink too (it only ran when logging to a file, so
+no Wi-Fi run had it). NRO `e807fd88`.
+
+## 2026-10-17: first hand-played console run; static, intro audio, tail and shadows fixed
+
+The user played NRO `e807fd88` from boot to the training level (log `run/net_logs/20261017-064742.log`).
+Gameplay was a steady 20.0 FPS (526 draws, game thread 28 % of a core, GPU executor 71 %, emulated vblank
+26–33 Hz instead of 60) and felt smooth; the user asked to fix the visible and audible problems before
+optimising. Each was reproduced and fixed on the Linux bench:
+
+| User report | Cause | Fix |
+|---|---|---|
+| Brief "heavy rain / TV static" on menu selections, in the first cutscene, more often in gameplay | `apu_phys()` masked every APU address to 26 bits. DirectSound gives the APU `MmGetPhysicalAddress()` of its buffers, and for memory the game allocated above RAM (extended VMA, `0x74000000`) that is the VA passed through: a stream segment at `0x7415D7A0` was read from `0x0015D7A0`, the game's code | Addresses in `[0x08000000, 0x80000000)` are VAs (c130f84). Found by capturing the output (`RECOMP_AUDIO_DUMP`), measuring each 20 ms window's first-difference/signal energy ratio (white noise ≈ 2, music < 0.8), then a temporary per-voice detector in the voice processor that logged the noisy voice's format and stream-segment address: voice `v046`, 16-bit stereo stream, RMS 0.5 and ratio 1.8 (uniform random data) on segment `0x7415D7A0`, legitimate rain on segments in RAM |
+| Intro movie audio lost within a second | The movie (four mono ADPCM stream voices) queues two 0.4 s segments per channel and refills only from completion callbacks. Its first frames stalled (frame 3: 4,270 ms on the console, 434 ms on Linux), so both segments drained, DirectSound paused the starved voices and the player never refilled. The stall is first-use shader and pipeline compilation (the Linux sampler shows lavapipe's LLVM busy while the main thread yields); the console run had prewarmed "0 programs, 0 pipelines" because the toolkit's cache folder was Burnout 3's `sdmc:/switch/b3x/`, hard-coded, which does not exist on this card | Cache folder from `XBOXRECOMP_SWITCH_DIR`, set to `sdmc:/switch/conker/` (0d9fb5c). To verify on the console: the first run fills the cache, the second should keep the intro audio |
+| Tail is purple | The tail fur samples a 64×64 `SZ_A8Y8` (`0x1A`) and a 64×64 `SZ_G8B8` (`0x28`) texture; no decoder, so the magenta placeholder | Decoders for `AY8`, `A8Y8`, `G8B8`, `R8B8` with xemu's channel placement (9882f42); undecodable formats are now named once in the log |
+| Two shadows following the character | The projected shadow maps (`PROJECT2D`, 128×128 R5G6B5) are sampled clamp-to-border with `SET_TEXTURE_BORDER_COLOR` `0x00FFFFFF`; Vulkan samplers always had a transparent black border, and the shadow passes multiply the scene (`DST_COLOR × ZERO`), so dark quads appeared wherever receivers reached past the map | Sampler takes the nearest fixed border colour, colour before alpha (d300139). A first attempt that chose by alpha first changed nothing; the frame trace's new stage-0 fields (`addr 00010404 border 00FFFFFF`) showed why |
+| Some cutscene shots blurry | Probably the game's depth of field and the deliberately blurred hangover shot | Not changed; compare with footage of the original first |
+
+Tooling added on the way: nxlink `KEY=VALUE` arguments are now applied inside `switch_boot()` (they came
+after it had read the profiler, clock and log switches, so the profiled run had no profile); a Linux sampling
+profiler (`RECOMP_LINUX_PROFILE=1`, `src/linux_prof.c`, 1 s windows, library code by symbol) printing the
+console's `[profile]` format for `tools/prof_log_report.py --window-s 1`. A gdb-Python sampler with
+`continue &`/`interrupt` does not work in batch mode (the thread is still running when the backtrace is
+taken); the in-process `SIGPROF` sampler replaces it.
+
+NRO with all of this: `analysis/elf_archive/conker-vulkan_ba31654d.{nro,elf}` (commit d300139).
+
+## 2026-10-17: depth of field reads the real depth; fcmov and fxtract lifted
+
+**Depth of field.** The post-process downsample (into the 256×256 target `80CEC180`) samples the back
+buffer on stage 0 and the depth buffer `80BC0000` on stage 1, with stage 1's format `0x41`
+(`LIN_R8G8B8A8`, a colour format) and an alpha test `≥ 8` deciding which pixels enter the blur. The game reads
+its Z24S8 depth as raw bytes. Our depth is a Vulkan depth image that never reaches guest memory, so the
+texture came from stale bytes and the blur mask was arbitrary: the likely cause of "some cutscene parts
+blurry, some sharp". Fix (00f1cb4): depth images are samplable with a depth-only view; a texture whose address
+is a depth buffer is a colour image refilled by a full-screen pass when the depth changed (a counter bumped by
+depth writes and clears), holding the texels the guest's decode of the dword `(z24 << 8) | stencil` gives
+(R G B = the depth's high, middle and low bytes; stencil not converted). The title tavern now blurs the
+near foreground and keeps the bar sharp. Not compared with the original yet; to check on the console.
+
+**x87.** `fcmovCC` (conditions from `g_fp_cmp`, as the jcc mapping) and `fxtract` are lifted (5fa8fb2); both
+were comments in CRT math code (`sub_00458494`, `sub_00459020`).
+
+**Incident.** A long bench run at `DUMPN=15` filled the disk with 9 GB of frame dumps; Docker Desktop hung
+(every `docker` command blocked) and had to be force-restarted after freeing space. `live_linux.sh` now keeps
+only the newest `KEEP_DUMPS` (300) dumps while running.
+
+## 2026-10-17: Beach Dead plays; one more hidden entry; an intermittent class-screen freeze
+
+- **Beach Dead.** With the first two seeds the level loaded, then logged `[ICALL] Failed to resolve VA
+  0x0019D3C0` and crashed. That function starts right after the jump table that ends `sub_0019CE40` (last
+  entry `0x0019CE92` at `0x0019D3BC`), referenced from `.rdata` `0x0058EE78`. The hidden-entry scan had
+  missed it twice: its gap rule wanted the entry within 64 bytes of the previous function's end, and its
+  vetting wanted a `ret`/`jmp`/`int3`/`nop` before it. Both now also accept an entry after a jump-table
+  dword pointing back into the previous function; the rescan found exactly this one. Seeded, full regen
+  (21,321 functions); Beach Dead then ran two minutes of bot play with no `[ICALL]` or crash (a6f9ff2).
+  The bunker interior looks strongly red; not compared with the original yet.
+- **Class-screen freeze (intermittent).** Once, after pressing up to change class, frames stopped: the main
+  thread sat in D3D's GPU wait (`sub_0053C190` from `sub_00218220`) on the event the PGRAPH handler sets,
+  while the GPU executor was idle. Six more class changes with `CONKER_D3D_TRACE=1` did not reproduce it.
+  Recorded in the status as a lost wake-up to chase with the watchdog.
+
+## 2026-10-17: console run of NRO `688d985e`; version 0.8
+
+The user played the build with every fix so far (log `run/net_logs/20261017-145325.log`): the static is gone;
+the cutscene blur is still there (the depth-of-field change did not fix it); main-menu transitions are a bit
+slow; the frame rate drops a little when the camera moves; some very minor stutters remain. The launch
+arguments now reach the profiler (`[prof] sampling ...` in the log). This state was tagged **v0.8** (NRO
+version 0.8). Next: performance, using the hardware better rather than lowering quality.
+
+## 2026-10-17: 30 FPS on the console: vertex attributes unpacked on the GPU
+
+The console profile of the training level on NRO `688d985e` (`RECOMP_NX_PROFILE=1`, read with
+`tools/prof_log_report.py`) had the GPU executor at about 80 % of a core and the game thread well below a
+core, so the executor set the pace. A fifth of the executor's time was spent converting vertex attributes
+on the CPU, per vertex and per draw: CMP (packed 11:11:10) normals through `fetch_attr` (~13 %) and formats
+NVK cannot fetch as stored through `attr_to_float4` (~9.5 %), each result copied again as 16 bytes. A new
+`[profile-lr]` table (samples by caller, `--callers`) charged the `memcpy`/`memcmp` leaves to their callers.
+
+Commit f67d461 moves that work into the vertex shader. CMP normals are fetched as one R32 lane (back-end
+flag `NV2A_BACKEND_RAW_CMP`) and unpacked by `nv2a_cmp()`; formats the device cannot fetch get a fetchable
+neighbour and a fix-up (three components fetched as four with w forced to 1, D3DCOLOR fetched as RGBA and
+swapped back). The three fix-up masks travel in the vertex uniform block and `nv2a_inputs()` in the Vulkan
+prelude applies them. Startup logs which NV2A vertex formats the device cannot fetch as stored.
+
+Console run of NRO `0678347d` (log conker-nx `run/net_logs/20261017-152423.log`): 30.0 FPS in 34 of the 10-second
+windows, 29–30 in most of the rest; executor about 43 % of a core, game thread about 59 %. The user: menu
+transitions a lot smoother, gameplay better and more stable; left are very very minor stutters, the blurry
+cutscene shots, and missing loading screens between sections. The emulated vblank counter read 3–7 Hz in
+gameplay while the game held 30 FPS, to be understood before trying for 60.
+
+## 2026-10-17: loading screens are drawn into the front buffer, never flipped
+
+The user saw the game freeze for a couple of seconds where a loading screen belongs (entering the area with
+the first weapon in the training level). Linux repro: loading the training level from the profile menu gave
+one presented frame of 13.6 s with 13,400 draws. `RECOMP_SURF_STATS=1` (new: for any frame over 2,000
+draws, draws per surface, scan-out address, control methods and draw runs) showed the draws split evenly
+between the two framebuffers `80964000` and `80A90000`, alternating one at a time, with one flip in the
+whole frame and the scan-out (`PCRTC_START`) parked on `80A90000`. `RECOMP_FRAME_TRACE_DRAWS=3000-3011`
+(new: frame-trace a draw range of every frame, which reaches inside a long frame) showed each pair: a
+progress-bar sliver alpha-blended into the back buffer, then a full-screen 640×480 copy (ONE/ZERO) of the
+back buffer into the front one, then a fence.
+
+So the loader updates the screen by drawing into the buffer the CRTC scans out; the hardware shows it at
+every vblank, the renderer only presented on flips. Fix: `scanout_present()` in `nv2a_pb_exec.c`
+presents the scanned-out buffer after a draw into it when the last flip is at least 100 ms old, at most
+every 33 ms (`RECOMP_SCANOUT_PRESENT=0` turns it off; normal frames never draw into the scanned-out buffer,
+and the 100 ms rule keeps a half-drawn frame from being shown). The Linux bench now shows the "Loading..."
+screen with its progress bar; NRO `0f38c4dc` carries it to the console.

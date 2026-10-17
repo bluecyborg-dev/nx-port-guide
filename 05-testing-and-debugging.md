@@ -43,6 +43,9 @@ Use full-memory title takeover when the port needs more memory than applet mode 
   (`script -q`) so it streams line by line.
 - Archive the exact NRO and ELF of every run under a content hash, and check the ELF's entry point before
   sending.
+- Apply launch arguments before the runtime reads any setting. In Conker the `KEY=VALUE` arguments were set
+  after boot code had already read the profiler, clock and logging switches, so a run "with the profiler
+  on" had no profile and nothing said so. Log each applied argument.
 
 ## Bring-up test stages
 
@@ -130,11 +133,44 @@ Work through these in order; the early steps are cheap and each one rules out a 
    points at shared guest state, inputs or translation. It narrows the search without proving that the GPU
    outputs are identical.
 
+### A picture that freezes while the game keeps running
+
+A loading screen that never appears (the last frame stays up for a few seconds, then the game goes on) is
+often a presentation problem, not a stall. Check whether draws continue during the freeze while no flip
+or present call arrives. Consoles scan out a framebuffer by themselves at every vertical blank, so a title
+can update the screen by drawing straight into the buffer being displayed and never flip: Conker's loader
+draws a progress-bar step into the back buffer and copies it into the front buffer, hundreds of times a
+second for several seconds. A renderer that presents only on flips shows nothing new. Count draws per
+target surface for the long frame and compare with the scan-out address register; if draws hit the
+displayed buffer, present that buffer yourself, rate-limited and only after no flip has come for a while
+(a normal frame never draws into the buffer on screen, and the delay keeps a half-drawn frame from being
+shown). Details for the original Xbox: [xboxrecomp debug reference](platforms/xbox/02-xboxrecomp-debug-reference.md).
+
 ### Image comparisons
 
 Use a deterministic menu/fade or scripted route for image comparisons. If a fast path has a verification
 mode, compare it to the original path on first use or for all uses while debugging. Dynamic memory should be
 snapshotted once per comparison; reading it twice while the game mutates it can create false mismatches.
+
+## Audio correctness
+
+Players describe broken audio vaguely ("static", "heavy rain", "it cut out"); turn that into data:
+
+1. **Capture the exact output PCM** for a scripted route (menu selections, a cutscene), kept in memory and
+   written at the end so the capture does not disturb timing.
+2. **Find the bad windows.** For each 20 ms window compute the RMS and the ratio of first-difference energy
+   to signal energy: about 2 for white noise, well below 1 for music and speech. Loud windows with a ratio
+   above 1 are noise; silent stretches where sound is expected are starvation.
+3. **Find the voice.** In the emulated audio processor, run the same measurement on each voice's own
+   fetched samples and log the voice's format and buffer addresses when it looks like noise. RMS ≈ 0.5 with
+   a ratio near 2 is uniform random data: the voice is reading the wrong memory, not decoding badly.
+   In Conker the voice's buffer was above RAM and the device-side address mapping masked it into the
+   game's code.
+4. **For silence, trace the stream protocol** (segments queued, completions, pauses) next to the frame
+   hitches. A stream that drains during a long frame and is then paused for lack of data points at the
+   stall, not at the audio code.
+
+Never judge audio from a run with audio tracing on: the trace itself causes gaps.
 
 ## Logging and crash evidence
 
@@ -146,8 +182,7 @@ call-stack watchdogs, frame traces, surface dumps, crash register/address dumps 
 file and save problems, a per-open trace is worth having from the start: the guest path, requested access,
 create disposition and options, the status returned, and the guest return addresses on the stack. It shows
 what the title asked for (create versus open, directory versus file) and which game routine asked, which a
-plain path log does not. Never judge audio quality from a run with audio tracing on: the trace itself causes
-gaps.
+plain path log does not.
 
 If a run hangs, capture thread stacks and distinguish a guest spin, an expected event wait, a lock deadlock,
 file I/O, GPU fence wait or logging blockage. Do not infer a deadlock solely from a frozen image.
@@ -159,6 +194,7 @@ file I/O, GPU fence wait or logging blockage. Do not infer a deadlock solely fro
 - Record the active settings, frame-time distribution, thread utilization, GPU timing, draw/upload counts and stalls.
 - Compare input latency, audio stability and image correctness alongside throughput.
 - Treat profiler call chains cautiously if the build lacks frame pointers; the source notes recommend trusting sampled PCs more than deep stacks in that case.
+- Have the console profiler summarize into the log (hottest code ranges per thread per window, resolved later against the ELF), so a Wi-Fi run needs no trip to the SD card. The same format from a desktop sampler (a `SIGPROF` timer recording the interrupted PC) lets one report script read both. A debugger-driven sampler is not a substitute: gdb's asynchronous continue/interrupt does not work reliably in batch mode.
 
 ## Storage, deployment and saves
 

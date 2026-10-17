@@ -15,7 +15,7 @@ cheap to check and has named real bugs.
 
 | Signal | What it means | What to do |
 |---|---|---|
-| Unresolved indirect call (the runtime logs the target address) | A function the static pass missed: code after alignment padding or a jump table, code right after a `ret` with no padding, thread entry points, callback and class-driver tables | Disassemble around the address: a plausible function start follows `ret`, `int3` padding or a jump table. Add it as a seed, run the **full** regeneration (seeds change function boundaries) and check the seed does not land inside an existing function, which would split it. A tail jump from the new function can lead to a second missed one. In Carbon the first unresolved call exposed a disassembler drift bug; Conker needed a dozen seeds found this way over two days, each by a run that reached a new scene |
+| Unresolved indirect call (the runtime logs the target address) | A function the static pass missed: code after alignment padding or a jump table, code right after a `ret` with no padding, thread entry points, callback and class-driver tables | Disassemble around the address: a plausible function start follows `ret`, `int3` padding or a jump table. Add it as a seed, run the **full** regeneration (seeds change function boundaries) and check the seed does not land inside an existing function, which would split it. A tail jump from the new function can lead to a second missed one. In Carbon the first unresolved call exposed a disassembler drift bug; Conker needed a dozen seeds found this way over two days, each by a run that reached a new scene. A static scan finds most of them in one pass: addresses referenced from data or code that sit right after a `ret`/`jmp` inside a known function, or in a gap no function covers, including straight after a jump table at the end of the previous function (Conker: 33 at once) |
 | Direct call into an undetected address (a stub that logs its first hit and returns) | Same cause, but the call silently does nothing | Same as above |
 | Callee-saved registers or stack pointer wrong after a call (an ABI check build option) | A function split in two by a wrong boundary: the epilogue never ran | Find the real start, fix the seed or boundary |
 | Unresolved condition-flag fallbacks in the generated code | A compare and conditional jump the translator could not pair | Each may be a branch that is never (or always) taken; read the original code |
@@ -30,7 +30,9 @@ cheap to check and has named real bugs.
   investigations. Without one, attach a debugger and take every thread's backtrace: translated functions
   keep their guest names (`sub_00046490`), so the host frames are the guest call chain.
 - Tell a guest spin from an expected event wait, a lock deadlock, file I/O, a GPU fence wait or a blocked
-  log sink before calling it a deadlock. A frozen image alone proves nothing.
+  log sink before calling it a deadlock. A frozen image alone proves nothing. It may not even be a hang: a title that
+  draws into the displayed buffer without flipping (Conker's loading screens) looks frozen on a renderer
+  that presents only on flips ([testing and debugging](05-testing-and-debugging.md#a-picture-that-freezes-while-the-game-keeps-running)).
 - Games have their own fatal-error screens, often a tight `jmp $` loop after drawing a message. When one
   thread spins in a single small function forever, check whether it is that screen and what called it.
 - Process hygiene on a desktop bench: run one instance at a time. A runtime may rename its process and
