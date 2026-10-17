@@ -165,3 +165,108 @@ file I/O, GPU fence wait or logging blockage. Do not infer a deadlock solely fro
 The supplied notes document network NRO deployment and live logs as a way to avoid repeatedly moving the SD card (see [the console run loop](#console-run-loop-over-wi-fi)). Before trusting a failure, rule out a stale log listener and verify that the game reads the expected files. SD cards may silently retain stale/corrupt blocks; hash data after copying where possible (against the extracted disc), avoid overwriting suspect files in place, keep a known-good backup and replace a card that fails once. The Black Ops port lost days to a failing card.
 
 Always test a fresh save/cache directory as well as an existing one. Verify nested directory creation, file dispositions, save/load cycles and behavior after restarting the application. A host filesystem error can mean a missing asset or a failed attempt to create parent directories; inspect the requested guest path and operation. Reproduce the original OS's status codes exactly, not only success versus failure: games branch on them. In the Conker port, the game's own recursive directory helper created missing parents only when an attribute query reported "path not found" (missing parent) rather than "name not found" (missing last component); a runtime that reported "name not found" for both sent the game to its fatal-error screen on a fresh cache. Fix the status the game reads instead of working around it in the runtime (for example by creating parent directories the original OS would refuse to create).
+
+## Run evidence and comparison discipline
+
+Give each run a stable identifier and record the source commit, NRO hash, matching ELF, executable/data
+identity, runtime options, launch mode, console mode/clocks, save/cache state, route, and capture interval.
+Keep raw logs and captures immutable; write interpretations in the logbook with a link to that evidence.
+The word **fixed** should name the build and environment where the failure stopped reproducing.
+
+For correctness comparisons, hold the scene, input, save state, renderer options, and timing point constant.
+Separate cold-start from warm-cache behavior and fresh-save from existing-save behavior. When a frame trace
+is expensive, trigger it from a draw/packet threshold or known in-game event, then keep its unmodified
+source data alongside decoded views. Compare intermediate surfaces and state, not only the final screenshot.
+
+Use a hypothesis ledger for visual failures:
+
+| Field | Example of what to write |
+|---|---|
+| Observation | The presented image dimensions differ from the expected back-buffer dimensions. |
+| Suspected layer | Presentation target selection. |
+| Competing explanations | Last surface touched versus last surface drawn; stale swapchain image. |
+| Discriminating test | Log target address/dimensions for each draw, clear, and flip. |
+| Result and limit | Selecting the last-drawn surface restores the expected dimensions; this does not validate all composites. |
+| Next step | Verify the target on a frame with no draw or an explicit resolve. |
+
+This keeps a useful observation from becoming an unsupported diagnosis. A temporary override that reveals
+geometry proves that a state variable affects visibility; it does not automatically identify the correct
+state or prove the override is a valid fix.
+
+For the detailed Switch console validation and deployment procedure, see
+[Switch console validation and deployment](#switch-console-validation-and-deployment).
+
+## Switch console validation and deployment
+
+### Validate in increasing cost order
+
+#### Desktop or container correctness pass
+
+Build for the console CPU architecture where possible. An AArch64 Linux container can expose alignment,
+calling-convention, register-allocation, and address-space issues that an x86 desktop hides. A software
+Vulkan backend such as lavapipe is useful for deterministic logic and many renderer checks, but its timing
+is not a Switch performance proxy.
+
+Exercise boot, file reads, cache creation, menu navigation, one representative gameplay route, audio,
+input, transitions, save/load, and shutdown. Use a fresh save/cache path in addition to a warmed path. A
+fresh cache tests directory creation, error statuses, and first-use work that an existing cache hides.
+
+#### Hardware pass
+
+Use Homebrew Menu title takeover when the port needs the full process memory budget. Keep game data on the
+SD card and send only the NRO over the network when the port's NetLoader workflow supports it. Record the
+actual console mode and clocks; repeat on hardware after desktop validation for mappings, IPC, unaligned
+atomics, audio/input deadlines, NVK, storage, and performance.
+
+Automate menu/gameplay navigation with input scripts, a known save, or a title-specific command hook.
+Trigger traces from an in-game event or draw/packet threshold rather than process start time, because load
+and boot duration varies. When the bench runs slowly, hold controller inputs long enough to span a game
+input-sampling interval.
+
+#### Network upload and log discipline
+
+- Make sure the Homebrew Menu's NetLoader is open before upload. Do not use a port scan as a readiness
+  check; one supplied test found that probing the NetLoader disrupted the next transfer.
+- Stop stale log listeners before a run and confirm which process owns the log connection. A stale reader
+  once left a game blocked while writing output.
+- Use line-buffered/pseudo-terminal transport if a pipe batches logs. Confirm the sender is streaming
+  before interpreting an empty log as an early game crash.
+- Keep socket sends off the shared logging mutex and hot threads. Queue lines for a dedicated sender and
+  track queue drops; a network stall must not freeze audio and rendering.
+- Keep runtime arguments short and log the effective settings. Store stable defaults on the SD card and
+  use per-run arguments for diagnostic overrides when supported.
+- Archive the log and exact NRO/ELF for every run. Add frame/surface captures and profiler files with the
+  same run identifier.
+
+### Make test state reproducible
+
+Use a run identifier that joins source state, output artifacts, environment, and evidence. Record whether
+the run used a fresh or warmed filesystem/cache, deterministic input route, random seed if available,
+display mode, save state, active graphics options, and the point at which the capture was taken. Keep
+baseline and experimental runs under separate output names.
+
+Change one variable at a time unless the experiment explicitly tests an interaction. For an optimization,
+keep the original path available behind a switch, verify image/gameplay correctness first, then measure
+performance. A test that improves FPS but changes frame output, blocks loading, breaks held input, or
+causes audio gaps is not a successful optimization.
+
+### Console build/run checklist
+
+- [ ] Toolchain, driver, dependencies, patches, source state, and flags are recorded.
+- [ ] Code generation was rerun only when relevant, and the generated code corresponds to the current
+      executable/seed set.
+- [ ] The NRO packages the intended ELF and has the expected startup/link layout.
+- [ ] Matching unstripped ELF and NRO are archived by the same build identifier/hash.
+- [ ] Desktop/container run passes boot and a reproducible scene route.
+- [ ] Hardware launch mode, display mode, clocks, and active options are recorded.
+- [ ] Fresh and warmed save/cache runs have both been exercised.
+- [ ] Upload and log stream are confirmed; no stale listener can block the game.
+- [ ] Final run evidence includes logs, frame dumps/profiles when relevant, and a clear claim about what
+      was actually verified.
+
+### Local source trail
+
+This page synthesizes `conker-nx/docs/10-building.md`, `conker-nx/docs/11-testing-on-console.md`,
+`conker-nx/docs/13-build-process.md`, `bo1-nx/docs/BUILDING_NRO.md`,
+`bo1-nx/docs/SWITCH_OPTIMIZATION_GUIDE.md`, and `bo1-nx/docs/OPTIMIZATION_LOG.md`. Exact commands and
+tool paths remain in the corresponding project build guides.

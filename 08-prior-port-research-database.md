@@ -9,6 +9,27 @@ This file collects reusable findings from earlier Switch port and recompilation 
 - Keep risky optimizations optional until output and behavior match. A fast-path self-check does not replace full-frame comparison.
 - Game-specific conclusions and current work items are linked from their platform/game research pages. This document keeps the cross-project lessons.
 
+### Applicability test before reusing a result
+
+For each finding, classify what it depends on before copying the implementation:
+
+| Dependency | Questions to answer |
+|---|---|
+| Switch target runtime | Does it depend on Horizon scheduling, libnx services, NVK, storage, or display pacing? See [the Switch runtime guide](02-how-the-switch-works.md) and [Switch performance guide](03-switch-performance.md). |
+| Guest CPU/recompiler | Does it depend on x86, PowerPC, instruction semantics, register state, or generated-code shape? Keep it under the matching source-platform folder. |
+| Guest GPU/command stream | Does it depend on NV2A, Xenos/PM4, D3D state, tiling, EDRAM, or a particular renderer boundary? Keep the mechanism with that platform/game. |
+| Engine/game behavior | Does it rely on a named dvar, map, level, asset format, or title-owned loading rule? Treat it as a case-study result only. |
+| Measurement setup | Were the clocks, game scene, build, and profiling method comparable? Keep the raw run details with the claim. |
+
+An idea can transfer while its numeric result does not. For example, measuring allocation cost before
+adding a pool is reusable; one project's slab size is not. State caching is reusable; the cache invalidation
+rules depend on the guest command stream. A lower-resolution target is an experiment; the guest GPU's
+tile/resolve constraints determine safe dimensions.
+
+For research notes, label each statement as a direct measurement, implementation observation, external
+claim summarized from supplied files, inference, or proposed experiment. Include the source path and date,
+and preserve contradictory results rather than averaging them into a false consensus.
+
 ## Projects and porting approaches
 
 | Project family | Port / rendering approach in the supplied notes | Useful research area |

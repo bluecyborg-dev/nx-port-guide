@@ -39,3 +39,28 @@
 - [ ] Final build identity matches archived symbols/profiler ELF.
 - [ ] Third-party license obligations and repository exclusions are rechecked.
 - [ ] Game-specific findings are in that game's logbook; shared guidance only contains verified reusable behavior.
+
+## Additional engineering evidence
+
+- [ ] A subsystem contract records guest-visible inputs/outputs, blocking behavior, synchronization effects,
+      memory ownership, and failure statuses for each host bridge.
+- [ ] Guest virtual ranges, aliases, committed memory, device apertures, stack, runtime data, and TLS have
+      an explicit map derived from the executable's actual image end.
+- [ ] Function seeds and callbacks are supported by disassembly/control-flow evidence; a seed is not
+      accepted only because it makes one symptom disappear.
+- [ ] Runtime traces distinguish direct calls, unresolved indirect calls, ABI failures, untranslated
+      instructions, guest fatal loops, host crashes, and platform service errors.
+- [ ] Each graphics capture identifies source of positions/state (CPU estimate, generated shader, GPU
+      readback, or hardware capture) and the backend it verifies.
+- [ ] Renderer correctness is compared at intermediate render targets, including dimensions, format,
+      pitch/tiling, clear/resolve data, and sampled resources.
+- [ ] Dynamic guest data is snapshotted once per comparison; asynchronous workers do not retain mutable
+      guest pointers beyond their defined lifetime.
+- [ ] Shader and pipeline caches have complete keys, a versioning rule, corruption recovery, and a safe
+      uncached fallback.
+- [ ] Texture/image pools are budgeted in bytes, account for handles and peak bursts, and retire resources
+      only after GPU completion.
+- [ ] Performance reports separate busy time from waits and include frame-time tails, stutter counts,
+      input/audio behavior, and test repeatability.
+- [ ] Every test artifact can be joined to its source commit, exact NRO/ELF, settings, scene, device mode,
+      and fresh/warm storage state.

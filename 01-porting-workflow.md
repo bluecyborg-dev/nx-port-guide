@@ -23,6 +23,40 @@ Keep executable or GPU details within their source platform. Original Xbox x86/N
 7. **Profile on the Switch.** Separate game-thread, renderer-thread, GPU, storage and waiting costs. Change one variable at a time and retain the old build for comparison.
 8. **Record durable findings.** Keep a per-game logbook of symptoms, evidence, fixes and which build/device verified each result. Move general compatibility discoveries into shared guidance only after validating their scope.
 
+## Engineering gates and expected evidence
+
+Treat each step as a gate with an artifact that can be reviewed. This prevents an observation such as
+"the title opened" from silently becoming evidence that the renderer, saves, or hardware path also work.
+
+| Gate | Evidence to retain | Exit condition |
+|---|---|---|
+| Target inventory | Executable/data hashes, region/revision, section map, imports, memory end, asset inventory | The analysis covers every code-bearing section and identifies runtime inputs. |
+| Translation | Generator version/options, function/ABI reports, unresolved target list, untranslated-instruction census | Missing entries and instruction fallbacks have an owner and a verified disposition. |
+| Runtime boot | Guest stack, host/service logs, mapping map, file-operation trace, build identity | Entry point reaches a stable title state without unresolved calls, invalid memory, or accidental overlaps. |
+| Functional paths | Repeatable input route, fresh/warm storage cases, input/audio/movie/save observations | Menus and representative gameplay paths complete without hidden dependencies on stale state. |
+| Graphics | Deterministic frame/command capture, intermediate targets, shader/state identifiers | The first incorrect operation is localized; a final screenshot alone is not a diagnosis. |
+| Hardware | Exact binary pair, launch mode, logs, device mode, settings, stock clocks | Switch-only behavior and performance claims are supported by a hardware run. |
+| Optimization | Baseline and candidate builds, correctness comparison, stage measurements, rollback switch | A candidate improves the measured critical path without unacceptable behavior changes. |
+
+Use explicit status words in logs: **observed** means directly present in the artifact; **inferred** means
+an explanation consistent with evidence; **hypothesis** means an experiment remains; **verified** names
+the exact build and environment that passed. A result from a desktop renderer must not be described as
+hardware verification.
+
+## Subsystem contract inventory
+
+For every host bridge, write down the guest-visible contract before implementing a special case:
+
+- Inputs and outputs, including registers, stack arguments, alignment, sizes, and ownership.
+- Whether the call blocks, wakes a thread, releases a guest lock, or changes interrupt/IRQL state.
+- How failure is reported, including status-code distinctions and partial completion.
+- Whether the guest can observe ordering, timing, persistent state, or a side effect on another device.
+- Which addresses are guest RAM, aliases, device apertures, shared mappings, or host-owned buffers.
+
+This contract applies to files, memory, events/timers, graphics fences, audio, controller input, movies,
+and save/cache APIs. It helps decide whether a bug belongs in the shared runtime, platform layer, guest
+translation, or a title-specific hook.
+
 ## Function discovery and manual hooks
 
 Static function discovery can miss thread entry points, callbacks, class-driver tables, code after padding, or indirect-call targets. A seed list is a hypothesis about function boundaries: validate each address against bytes, references and surrounding control flow. A seed inside a real function can split it and create hard-to-understand failures.

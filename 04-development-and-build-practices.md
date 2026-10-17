@@ -45,6 +45,54 @@ Do not add a dependency just because another port uses it. Check its license, ta
 - Keep patches and toolkit changes traceable to an upstream source or local fix; note which fork supplied merged behavior.
 - Maintain a small clean build and a repeatable full regeneration path. Do not hand-edit generated translation output.
 
+## A reproducible build graph
+
+Think of a port build as a chain of independently versioned inputs rather than one compiler command:
+
+1. **Target input:** executable revision, region, asset set, and hashes.
+2. **Analysis:** parser/disassembler version, section configuration, function boundaries, ABI data, and
+   reviewed seeds.
+3. **Generated code:** translator revision, lowering options, generated-file manifest, and any post-process
+   step used to transform output.
+4. **Runtime:** compatibility layer, platform source, manual hooks, renderer, and feature switches.
+5. **Platform toolchain:** compiler/linker, sysroot, libraries, host architecture, and target architecture.
+6. **Graphics stack:** driver source revision, patches, shader compiler, build options, and persistent cache
+   schema.
+7. **Packaging:** startup objects, NRO metadata, icon, linker script, strip step, and final NRO/ELF hashes.
+
+Record this chain in a build manifest or the run log. When a failure appears, it lets the team distinguish
+stale generated output, a changed library, a driver regression, and a bad package. Keep the unstripped ELF
+with every NRO used on hardware; retain generated-code summaries even if the generated source itself is
+excluded from Git.
+
+## Incremental work versus full regeneration
+
+Re-run only the stages whose inputs changed, but be explicit about invalidation:
+
+| Change | Rebuild expectation |
+|---|---|
+| Executable revision, extra executable section, function seed, function boundary, or ABI-analysis input | Re-run analysis/function discovery and regenerate all code affected by the updated boundaries. |
+| Translator lowering or guest instruction semantics | Run the focused translator checks and regenerate code affected by that lowering. |
+| Runtime hook, kernel bridge, filesystem, scheduler, input/audio, or renderer source | Incremental native build is generally sufficient; preserve the generator outputs and compare the runtime behavior. |
+| Driver revision/patch or shader compiler | Rebuild that dependency and ensure the final executable relinks against the intended archive. |
+| Linker order, startup objects, metadata, or packaging | Re-run link/package and inspect startup layout and output identity. |
+
+Generated code can be millions of lines, so job count should be bounded by memory, not just core count.
+Large compiler jobs in the supplied examples used roughly 1–2 GB per job; LTO links can require more.
+Keep separate build directories for native and container compilers; CMake/Ninja caches are sensitive to
+absolute source and toolchain paths.
+
+## Desktop and target builds prove different things
+
+An AArch64 Linux/container target can catch target-architecture code-generation, alignment, and fixed
+address-space problems earlier than an x86 host. A lavapipe build is useful for correctness and repeatable
+captures, but does not measure Switch NVK. An emulator can cover selected boot/input checks but may not
+implement the console's Vulkan submission path. Only actual hardware verifies Horizon mapping/IPC,
+console scheduling, target driver behavior, storage, clocks, and performance.
+
+For the detailed Switch-facing NRO build and package workflow, see
+[the Switch build and package section](07-build-process.md#detailed-switch-build-and-package-workflow).
+
 ## Licensing and source boundaries
 
 The supplied Conker notes identify xboxrecomp as MIT with specific xemu-derived LGPL components; they also warn that xemu's GPL-derived renderer code and nfsmw-nx files have different licenses. The BO1 notes likewise call out GPL-licensed renderer code and LGPL-only media alternatives. These are source-document assertions; verify the exact license files for the version actually vendored before distribution. Do not copy code across projects until its license permits it.
