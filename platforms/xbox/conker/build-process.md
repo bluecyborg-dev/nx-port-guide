@@ -98,6 +98,89 @@ tools/live_linux.sh stop
 helpers automate Linux testing only; the lavapipe result does not validate the Switch NVK driver or console
 performance.
 
+### How Claude runs a test session
+
+This is exactly how Claude (the coding agent) tested changes on the bench while the user was away, from a
+macOS host with Docker Desktop. All commands run from the repository root.
+
+**1. Build** (about 1–2 minutes after a change to the runtime):
+
+```sh
+docker run --rm -v "$PWD":/work -w /work conker-dev cmake --build build/linux-vk -j6 2>&1 \
+  | grep -E ' error|warning: .*(nv2a_vk|pb_exec)|Linking C exec' | head -8
+```
+
+**2. Start the game in the background and drive it to the scene.** `tools/live_linux.sh start` runs
+`conker-live` detached with `RECOMP_PAD_LIVE=/work/run/live/pad.cmd`, `RECOMP_GL_DUMP=/work/run/live/d/f,$DUMPN`
+and `RECOMP_FPS_LOG=1`, and prunes dumps to the newest `KEEP_DUMPS`. `KEEP_SAVE=1` keeps `run/live/save`, whose
+Game 3 starts at the training level. `tools/to_training.sh` is the whole route (it uses steps 2–3 of the
+pattern below); by hand it is:
+
+```sh
+tools/live_linux.sh stop; KEEP_SAVE=1 DUMPN=10 KEEP_DUMPS=3000 EXTRA="RECOMP_SURF_STATS=1" tools/live_linux.sh start
+# wait for the title menu: a frame with more than 300 draws
+for i in $(seq 1 120); do sleep 3
+  c=$(grep -o '[0-9]* draws' run/live/run.log | tail -1 | cut -d' ' -f1)
+  [ -n "$c" ] && [ "$c" -gt 300 ] && break; done
+sleep 25
+tools/live_linux.sh press left:400; sleep 8    # pan to the save slots
+tools/live_linux.sh press a:400;    sleep 8    # Game 3
+tools/live_linux.sh press a:400                # Play
+# the level's text bank is read at the end of its load
+for i in $(seq 1 90); do sleep 2; grep -q 'text\\English\\TrainingLevel' run/live/run.log && break; done
+```
+
+The wake-up cutscene follows the load; eight `b:400` presses four seconds apart skip it into gameplay.
+
+**3. Read the evidence.** Log first, then frames:
+
+```sh
+grep -E '\[surfstats\]|\[hitch\] frame [0-9]+: [0-9]{4,} ms|\[fps\]' run/live/run.log | tail
+grep -cE '\[ICALL\]|\[CRASH\]' run/live/run.log
+ls run/live/d | grep -v fxaa | tail -60 | awk 'NR%5==0' | sed 's|^|run/live/d/|' \
+  | xargs .venv/bin/python -I tools/contact_sheet.py /tmp/sheet.png
+```
+
+Claude reads the sheet as an image, picks the interesting dumps and converts those to PNG at full size
+(`tools/live_linux.sh frame out.png` gives the newest).
+
+**4. Trace a phase.** For the cutscene depth of field, a trace was armed every two seconds through the scene
+and the traced frames classified afterwards (cutscene frames ~272 draws with two depth-sampling draws,
+gameplay 753 with one):
+
+```sh
+EXTRA="RECOMP_FRAME_TRACE=/work/run/live/ft.flag" ...    # start as above, route to the level, then:
+for i in $(seq 1 20); do touch run/live/ft.flag; sleep 2; done
+awk '/FTRACE\] frame after/{f=$NF} /FTRACE\] draw/{n[f]++} END{for (k in n) print k, n[k]}' run/live/run.log
+```
+
+For the loading screens, `RECOMP_SURF_STATS=1` named the long frame's surfaces and
+`RECOMP_FRAME_TRACE_DRAWS=3000-3011` traced draws inside it.
+
+**5. Stop and record.** `tools/live_linux.sh stop`; the result goes into `docs/09-bringup-log.md`, the
+status file and this logbook.
+
+**Console.** After `VULKAN=1 STAGE_GAME=0 switch/build.sh`, the NRO and ELF are archived as
+`analysis/elf_archive/conker-vulkan_<md5 prefix>.{nro,elf}`. The upload retries until the user opens the
+NetLoader:
+
+```sh
+for i in $(seq 1 360); do
+  out=$(NRO=analysis/elf_archive/conker-vulkan_<hash>.nro ARGS="RECOMP_FPS_LOG=1 RECOMP_NX_PROFILE=1" \
+        tools/nxlink_run.sh 192.168.1.248 2>&1)
+  echo "$out" | grep -q 'Connection to .* failed' && { sleep 10; continue; }
+  break; done
+```
+
+`tools/nxlink_run.sh` streams the log to `run/net_logs/` (read afterwards with `tools/prof_log_report.py`);
+when the user plays away from the Mac, the same loop calls `nxlink -a 192.168.1.248 -r 30 -p
+switch/conker/conker-vulkan.nro <nro>` without `-s`, so nothing waits on the Mac.
+
+Pitfalls met: a console build running at the same time made the bench slow enough that fixed waits landed
+in the menu; `ls | head` under `pipefail` died of SIGPIPE with many dumps; long runs at `DUMPN=15` filled the
+disk before pruning existed; the frame number of a dump is not the guest flip number once forced presents
+run.
+
 ## 4. Build and stage the Switch NRO
 
 After the Linux correctness pass, build the Vulkan NRO using the native devkitPro installation:

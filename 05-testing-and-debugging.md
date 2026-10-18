@@ -128,6 +128,43 @@ unresolved calls after every new scene, not only at boot.
 - **Trigger traces on content, not time.** Arm a frame trace on the first heavy frame after a delay (for
   example, once the draw count passes a threshold), or it lands on a loading screen.
 
+### Unattended test sessions in a container
+
+A coding agent (or a script) can run the whole check-a-change loop on the desktop bench while the developer
+is away, and leave evidence a person can review afterwards. The pieces, in the order a session uses them:
+
+1. **Build in the container**, incrementally, and keep only the lines that matter (errors, warnings in the
+   files just changed, the final link line). Archive each console build under a content hash next to its
+   unstripped ELF.
+2. **Start the game detached** in a named container: the mounted repository supplies the binary and game
+   data; the game reads presses from a live-input file and dumps a frame every N presents into a folder.
+   A loop inside the container deletes all but the newest few hundred dumps: unbounded dumps once filled
+   the disk and hung the container runtime, which then needed a forced restart.
+3. **Wait on log markers, not on time.** Poll the log every few seconds with a timeout: a draw count above
+   a threshold means the menu is up, a file-open line for a level's data means the load reached that
+   level. Boot time on a software renderer varies by a minute, and a build running at the same time slows
+   the game further; fixed sleeps land in the wrong scene.
+4. **Drive it with presses appended to the input file**, each held 300–400 ms, with a pause long enough for
+   the menu to react. Keep the route that reaches a test scene as a script (route = waits + presses), and a
+   save that starts past the parts not under test.
+5. **Look at the frames.** Assemble the newest dumps, or every Nth dump of a phase, into one labelled
+   contact sheet and inspect it; open single frames at full size only where the sheet shows something.
+   Thumbnails mislead about blur and fine detail.
+6. **Trace on purpose.** Arm a frame trace by creating a flag file the runtime deletes when it starts
+   tracing; to sample a phase whose timing is unknown (a cutscene), create it again every two seconds and
+   classify the traced frames afterwards by their draw counts or passes. Diagnostics that print only for
+   unusual frames (for example, frames with thousands of draws) keep the log short enough to read.
+7. **Stop the container** at the end of every session (one run at a time), and compare against the
+   previous run's log and frames before and after a change.
+
+Console side: the upload can be scripted as a retry loop that keeps trying the homebrew loader every ten
+seconds for an hour, so the developer only has to open it. When nobody will watch the log, send the build
+without the log listener, so the game neither waits for nor depends on the development machine.
+
+What a person still does: judge images against the original, play on the console, and say whether it feels
+right. Switches and log markers for one toolkit: [platform page](platforms/xbox/02-xboxrecomp-debug-reference.md#unattended-bench-session);
+exact commands of a real session: [worked example](platforms/xbox/conker/build-process.md#how-claude-runs-a-test-session).
+
 ## Graphics correctness
 
 ### Find the first wrong operation

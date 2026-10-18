@@ -24,6 +24,25 @@ string at about 256 characters).
 - Translated functions keep their guest names (`sub_XXXXXXXX`), so host backtraces are guest call chains.
   The runtime's globals have no debug types: cast them (`p *(float*)&g_xmm3`, `p/x *(unsigned*)&g_esp`).
 
+## Unattended bench session
+
+How the general loop in [testing and debugging](../../05-testing-and-debugging.md#unattended-test-sessions-in-a-container)
+maps onto `xboxrecomp`:
+
+| Step | Switch, marker or habit |
+|---|---|
+| Frames | `RECOMP_GL_DUMP=<dir>/f,N` writes `fNNNNN.bmp` every N presented frames (headless Vulkan also writes `_fxaa.bmp`; skip those). Dump numbers count presents, not guest flips: forced presents (a title drawing into the scanned-out buffer) advance them too |
+| Input | `RECOMP_PAD_LIVE=<file>`; append `buttons:hold_ms` lines (`a:400`, `left:400`, `&a+b:400` starts at once, `clear` drops the queue). Button names as `RECOMP_PAD_SCRIPT` |
+| Menu is up | `[hitch] frame N: ... M draws` lines: wait until a frame reports a few hundred draws |
+| A level loaded | `[PATH] \Device\CdRom0\...` lines name every file the title opens; wait for the level's data (or a file read at the end of its load) |
+| Progress and speed | `RECOMP_FPS_LOG=1`: `[fps]` every 10 s; `[hitch]` for frames over 50 ms with shader compiles and texture uploads |
+| Errors | grep `[ICALL] Failed`, `[STUB]`, `[CRASH]` after every phase |
+| Traces | `RECOMP_FRAME_TRACE=<flag file>` (re-create the file to trace again), `RECOMP_FRAME_TRACE_DRAWS=lo-hi` to trace inside a long frame, `RECOMP_SURF_STATS=1` for frames over 2,000 draws, `RECOMP_PSH_DUMP=1` for a pass's combiner math |
+| Console upload | `nxlink -a <ip> -r 30 -p switch/<title>/<title>.nro <nro>` in a retry loop; add `-s` (and run under `script -q`) only when the log should stream back |
+
+The runtime ignores `SIGTERM`; stop a bench run by removing its container (`docker rm -f`), not by signalling
+the process.
+
 ## Runtime switches
 
 | Switch | Effect |
