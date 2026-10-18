@@ -182,6 +182,54 @@ ninja sees the same paths every run. No ccache is used.
 
 An archived NRO can be sent again later with `NRO=out/elf-archive/<name>.nro tools/nxlink_run.sh <switch-ip>`.
 
+## Testing without the user (macOS build)
+
+The macOS build (MoltenVK) runs Kino der Toten unattended on the Mac. It is the only check that needs nobody at
+the console.
+
+1. **Build:** `cmake --build out/mac` (the folder is already configured; `game/` holds the extracted game files).
+2. **Run in the background and stop it after about two minutes.** A foreground run once hung the user's terminal.
+
+   ```sh
+   BO1_DEBUG_EXEC="devmap zombie_theater" BO1_DEBUG_EXEC_DELAY_S=40 \
+     out/mac/bo1 --game_data_root=$PWD/game <--options under test> > <scratch>/run.out 2>&1 &
+   PID=$!; sleep 130; kill $PID; sleep 3; kill -9 $PID 2>/dev/null
+   ```
+
+   - `BO1_DEBUG_EXEC` queues one console command (here the Kino map load); `BO1_DEBUG_EXEC_DELAY_S` is the delay in
+     seconds after the intro starts.
+   - The game then stands at the spawn point with no input.
+   - Any cvar can be passed as `--name=value`, the same as on the console.
+3. **Read the game's log**, the newest `out/mac/logs/bo1_NNN.log`, not the terminal output:
+   - `[native] last 10 s: ... draws ... swaps`: 200 swaps per 10 s is a steady 20 FPS, the cap.
+   - `skipped by reason`: draws removed by each renderer skip rule.
+   - `bo1: engine settings queued: ...`: the dvars the game applied.
+   - `bo1: job queue last 10 s`: the job-queue throttle's counters.
+   - `Render target ...` lines, and any `warning` or `error` lines.
+4. **Frame trace:** `--bo1_debug_trace_after_s=105` logs one frame's per-pass summary (draws per pass, depth state,
+   skip rule hit). Two runs differing in one option show exactly which draws changed. This is how the shadow-preset
+   draw counts were measured (`min`: ~905k draws per 10 s against ~326k with `off`, ~580k of them skipped).
+5. **Shadow presets:** `BO1_DEBUG_SHADOW_CYCLE="off,min"` switches `bo1_shadows` every 20 s, as the in-game menu would.
+
+The Mac proves the build, the boot into Kino, accepted settings, the absence of crashes and errors, and draw
+counts per pass and per skip rule. It does not prove:
+
+- Switch speed: its 200 swaps per 10 s is not a Switch figure;
+- busy scenes, since nobody plays and nothing spawns;
+- visuals, because its frame captures show only the HUD;
+- Horizon behavior: cores, priorities, memory mapping.
+
+**On the Switch, everything is automatic except two steps.**
+
+- **Automatic:** `tools/nxlink_run.sh 192.168.1.248` builds the arguments and sends the NRO.
+  `--bo1_debug_exec=devmap+zombie_theater --bo1_debug_exec_delay_s=150` loads Kino by itself, and the log streams
+  back to `out/net_logs/latest.log`.
+- **Needs the user:** opening the netloader (title takeover, then Y) and playing, because the measurements and the
+  feel come from real gameplay.
+
+Send one build per question and archive its ELF in `out/elf-archive/`. Compare the log with the previous session:
+swaps per 10 s, renderer CPU and GPU per frame, slow-frame counts and per-thread CPU from the profiler.
+
 ## Mac notes and troubleshooting
 
 | Symptom | Cause | Fix |

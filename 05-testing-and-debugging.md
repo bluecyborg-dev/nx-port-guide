@@ -50,6 +50,36 @@ other observable result when graphics matter. Keep capture review separate from 
   send a press".
 - Close emulators politely: a hard kill corrupted Eden's executable/configuration once.
 
+#### Unattended smoke runs on the development machine
+
+A desktop build of the port on the development machine itself (for example macOS through a Vulkan-on-Metal
+layer) can check most changes without anyone playing:
+
+1. **Launch in the background with a time limit**, then stop the process: start it, sleep about two
+   minutes, send a polite kill and then a forced one. A foreground run once hung the user's terminal.
+2. **Reach the test scene with no input**: an environment variable queues one console command (a map load)
+   a set number of seconds after start. The game then idles in that scene.
+3. **Pass the setting under test as a launch argument**, the same form the console build uses, so one
+   build covers both sides.
+4. **Read the runtime's own log file**, not the terminal output, and check:
+   - periodic present and draw counters (a steady value at the frame cap means no stall);
+   - per-rule counters for any renderer skips;
+   - a startup line listing the settings the game actually applied;
+   - warnings and errors.
+5. **Trace one frame after a delay** to log per-pass draw counts and state. Two runs that differ in one
+   option then show exactly which draws changed.
+6. **Cycle a live setting on a timer** through an environment variable, to test live switching without a
+   controller.
+
+What this proves: the build compiles, boots into the scene and accepts the settings, nothing crashes, and the
+draw counts per pass and per rule. What it does not prove:
+
+- performance on the Switch (different CPU, GPU and driver);
+- busy scenes, since nobody plays and nothing spawns;
+- visuals, if the capture path cannot read the whole frame (one translation layer only returned the HUD;
+  check a capture before trusting it);
+- Horizon behavior: cores, priorities, memory mapping.
+
 ### Console run loop over Wi-Fi
 
 - Send the NRO with `nxlink` to the Homebrew Menu's NetLoader (hold R on a game for title takeover, then
@@ -63,6 +93,10 @@ other observable result when graphics matter. Keep capture review separate from 
   (`script -q`) so it streams line by line.
 - Archive the exact NRO and ELF of every run under a content hash, and check the ELF's entry point before
   sending.
+- Everything else can be scripted: the sender builds the arguments, a debug argument loads the test scene
+  by itself, and the log streams back. A person still has to open the NetLoader and play, because the
+  measurements and the feel come from real gameplay. Send one build per question, then compare its log with
+  the previous session's.
 - Apply launch arguments before the runtime reads any setting. In Conker the `KEY=VALUE` arguments were set
   after boot code had already read the profiler, clock and logging switches, so a run "with the profiler
   on" had no profile and nothing said so. Log each applied argument.
