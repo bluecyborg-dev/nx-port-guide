@@ -10,6 +10,8 @@ Measure main/guest CPU, renderer CPU, GPU work, storage stalls, synchronization 
 
 Useful measurements from the supplied notes include per-thread busy/idle time, guest call samples, renderer work per draw, draw and packet counts, texture hashes/uploads, GPU timestamps, slow-frame categories and frame-time histograms. GPU timestamp readings on the cited NVK build were reported about 1.6× low; calibrate against the exact build before comparing them to CPU time.
 
+Treat hitch annotations as exclusions, not bottleneck attribution. A frame with no reported shader compilation or texture upload rules out those logged events for that frame; it does not distinguish guest CPU, command translation, driver work, GPU execution, synchronization waits, or uninstrumented resource work. Combine frame categories with sampling or scoped CPU timers and calibrated GPU timing before selecting an optimization.
+
 Use a repeatable scene. A static scene or scripted route is easier to compare than unrelated gameplay rounds. Capture medians and tail behavior: share of frames over 33/50/100 ms, 95th/99th percentile, worst hitch and cadence. At a 20 FPS cap, a 50 ms budget matters; a smoother cadence can feel better than a higher average with frequent missed intervals.
 
 ## Common CPU-side wins

@@ -92,3 +92,54 @@ Logs and evidence:
 - First Switch follow-up log: `run/net_logs/20261016-223841.log` (uploaded NRO reached frame 902).
 - Switch run with the two intermediate seeds: `run/net_logs/20261016-230621.log` (reached frame 1,801 before the four newer seeds were added).
 - Linux runs: `run/conker-dev-test/seeded2.log`, `seeded3.log`, and `seeded4.log`; frame captures: `run/conker-dev-test/frames/`.
+
+
+## 2026-10-18: completed overclocked Switch diagnostic capture and Docker follow-up
+
+Conker-nx diagnostic NRO `5924ba1f` (`run/net_logs/20261018-030841.log`) was launched with tree-insert
+instrumentation but without `RECOMP_NX_PROFILE`. It loaded Frontend → Windmill → Frontend → `Mp_Frontend` →
+`MPBeach`, passing the earlier frame-2,831 presentation stop and reaching frame 14,282. Windmill continued to
+at least frame 6,903. The run was overclocked. It logged 32 Windmill FPS windows at 21.9–34.7 FPS with
+vblank near 60 Hz, 95 Windmill hitches of at least 50 ms (51 at least 100 ms, 50 at least 200 ms, maximum
+608 ms), and no shader compilation in Windmill. Ninety of those 95 hitches had no shader compilation or
+texture upload. The full log had 444 hitches; MPBeach included a 3,570 ms frame with 20 programs compiled in
+2,069 ms and other long hitches without meaningful resource work. Audio stayed at 1,500 APU frames/s with
+zero output gaps, underruns or dropped buffers; heap use peaked at 658 MB. No crash, exception, watchdog or
+unresolved PGRAPH NOP was logged. Nxlink reset at the end and exited with code 0.
+
+No `[profile]` or `[tree-insert-diag]` output was present. Individual tree records require at least 128
+fix-up iterations and aggregate records require 16,384 calls. Their absence only means the reporting
+thresholds were not reached; it does not prove that `sub_000139D0` was not called. The earlier stall did not
+recur on this overclocked route, but neither a fix nor stock-clock performance is established. The absent
+sampling profile leaves renderer hot functions unidentified. Keep the tree investigation and renderer hot
+path as separate leads; do not change the guest routine from this capture alone.
+
+The current Linux Vulkan executable built in Docker (`conker-dev`; Ninja reported no work to do). Two
+60-second headless A/B runs used independent copies of `run/live/save`, `RECOMP_LINUX_PROFILE=1`, and the
+same startup route. Cache-on settled at 59.9 FPS and cache-off at 59.9–60.0 FPS; each reported 3,000 blocks
+copied and zero reused in every 300-frame window. Both runs opened `BootIntro.xmv`. The front-end scene did
+not exercise the Windmill cache hits; profiler overhead and the lavapipe/vblank cap prevent a Switch speed
+conclusion. The cache reduces copies in the Windmill Switch capture but has no demonstrated FPS gain.
+
+A separate 25-second Docker run dumped ten seconds of 48 kHz stereo 16-bit PCM to
+`run/cache-ab/intro.raw` (1,920,000 bytes). The current log opened `BootIntro.xmv` and said the title started
+the APU. The dump contained nonzero PCM from 0.30 to about 1.40 seconds after the audio device opened
+(peak 7,737), then exactly zero samples through 10.00 seconds. This reproduces a brief output burst followed
+by silence in the Linux route. The dummy SDL output cannot prove audibility, and there is no timestamp
+aligning the XMV's first frame with the PCM clock, so the movie-relative cutoff remains approximate.
+
+The first Switch logs `20261016-223841.log`, `20261017-002117.log`, and `20261017-020541.log` show the game
+opening `BootIntro.xmv` and initializing/starting the APU, but contain no audio dump, stream cursor, or packet
+telemetry. The user's recollection that the early intro had sound while the main menu was black remains a
+useful observation, not measured log proof. The black front end was independently a renderer issue with
+hundreds of guest draws; the Switch movie uses the guest XMV/DirectSound/APU path, while the Windows host FMV
+player is not the Switch path.
+
+From the first boot commit `ac33bfb` to current source, the DirectSound implementation and APU voice processor
+were unchanged. The concrete audio change is `c130f84`, which maps APU addresses in `[0x08000000, 0x80000000)`
+as guest virtual addresses; it fixed other streamed audio reading unrelated low memory. Current traces show
+four mono XMV voices initially queueing two ADPCM packets each, completion callbacks and IRQ/DPC running, and
+then no next buffer or later XMV packet submitted. Compare the early and current stream segment/descriptor
+addresses across packet completion before changing the APU mapping or guest producer. The shader-cache folder
+change in `0d9fb5c` did not solve the cutoff, and later Linux traces showed no shader compiles around the audio
+silence; first-use compilation remains an unconfirmed original explanation.

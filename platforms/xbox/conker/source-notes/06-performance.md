@@ -76,3 +76,23 @@ Together these took the NFSU2 console race from ~17 to 19.5-22.7 fps.
 - What misleads: **Eden** (caps race fps ~22; useful for menus and hitches only), **x86** (TLS and atomics are
   cheap there), **Linux race runs** (not repeatable: same build 15.0 vs 10.9 ms/frame). A static scene
   (main-menu idle, a car parked on the start line) is the repeatable benchmark.
+
+
+## Conker-NX: constant-block cache and no-resource hitches (2026-10-18)
+
+On NRO `e037bd66`, one Windmill run per setting showed the vertex-program constant-block cache reusing
+44–64% of 3,072-byte blocks. Cache-on and cache-off FPS ranges overlapped and long hitches persisted, so the
+copy reduction is real but a Switch frame-time gain was not demonstrated. Do not convert a counter saving
+into an FPS claim without repeated same-route hardware runs.
+
+A later overclocked diagnostic capture on NRO `5924ba1f` passed the earlier Windmill presentation stop and
+reached MPBeach. Windmill recorded 95 hitches of at least 50 ms; 90 had no logged shader compile or texture
+upload. MPBeach included both compile-bound stalls and long frames without those events. This only excludes
+the logged compile/upload work on those frames; it does not distinguish guest CPU, command translation,
+renderer/driver, GPU execution, synchronization, or uninstrumented resource work. The capture omitted
+function sampling and GPU timing, so preserve that attribution limit. Details and exact frame ranges remain
+in conker-nx `docs/09-bringup-log.md` and `docs/14-port-status.md`.
+
+The 60-second Docker front-end A/B settled at 59.9–60.0 FPS in both cache modes and reported zero cache
+hits in every 300-frame window. It did not exercise Windmill and ran against lavapipe with profiling enabled;
+use it only as a correctness check for that route. It provides no Switch performance comparison.

@@ -3,21 +3,40 @@
 What was done to get Conker running, in order, with the evidence for each address. Newest at the bottom.
 Addresses are Conker PAL (title 0x4D530051) guest VAs.
 
-## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-17: 30 FPS)
+## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-18: Windmill diagnostic route completed)
 
 Updated in the guide at major milestones only; the repo copy is the live one. Dated entries follow below.
 
-**Last milestone (2026-10-17):** **steady 30 FPS in gameplay on the console** (NRO `0678347d`, commit
+**Last milestone (2026-10-18):** diagnostic NRO `5924ba1f` passed the prior Windmill presentation stop at
+frame 2,831, ran through at least Windmill frame 6,903, then reached MPBeach through frame 14,282. This
+5–10 minute overclocked run had 95 Windmill hitches at least 50 ms, 90 without logged shader compilation or
+texture upload. It did not enable `RECOMP_NX_PROFILE=2`, so it cannot attribute those hitches to a function.
+The no-match child-search fix remains supported by the user's earlier replay report, while its reported FPS
+drop remains unmeasured. **Focus: use the available Docker route for a scoped renderer optimization and keep
+the guest CPU and renderer hot path as separate leads; do not claim a Switch FPS gain from this capture.**
+
+**Previous milestone (2026-10-17):** **steady 30 FPS in gameplay on the console** (NRO `0678347d`, commit
 f67d461): vertex attributes the CPU used to convert per vertex are now fetched as stored and unpacked in the
 vertex shader, which took the GPU executor from about 80 % of a core to 43 %. The user found menu transitions
 much smoother and gameplay better and more stable. **Focus: the known issues (cutscene blur, loading
 screens), then more headroom** (60 FPS if possible, low input lag) without lowering quality.
 
-**Builds:** Linux bench conker-nx `build/linux-vk/conker_recomp`. Newest Switch NRO
-conker-nx `analysis/elf_archive/conker-vulkan_084306cc.{nro,elf}` (the 30 FPS build plus the loading-screen present
-and the depth-of-field byte order), not yet run on hardware.
+**Builds:** Linux bench conker-nx `build/linux-vk/conker_recomp`. Latest diagnostic Switch NRO
+conker-nx `analysis/elf_archive/conker-vulkan_5924ba1f.{nro,elf}` (tree-insert diagnostics enabled; no
+sampling profiler; overclocked diagnostic capture). The comparable optimization candidate is
+`analysis/elf_archive/conker-vulkan_e037bd66.{nro,elf}` with the vertex-constant cache enabled by default.
+Earlier candidate NRO `630412bd` contains the recursive no-match correction and the user's replay report; the
+reported FPS drop still has no directly marked single-player log.
 
-**Last hardware run (2026-10-17, NRO `0678347d`, log conker-nx `run/net_logs/20261017-152423.log`):** played by the
+**Latest hardware capture (2026-10-18, diagnostic NRO `5924ba1f`, `run/net_logs/20261018-030841.log`):**
+the overclocked route passed Windmill frame 2,831 and continued through at least frame 6,903, then loaded
+Frontend and MPBeach through frame 14,282. The earlier presentation stall did not recur. No sampling profile
+or tree-diagnostic threshold report was logged, so the tree-loop hypothesis is weakened but not resolved.
+The previous user report of an FPS drop at the former single-player freeze point remains separate and
+unmeasured.
+
+**Last hardware run with a captured log before that report (2026-10-17, NRO `0678347d`, log conker-nx
+`run/net_logs/20261017-152423.log`):** played by the
 user. 30.0 FPS in 34 of the run's 10-second windows and 29–30 in most others; menu transitions a lot
 smoother; gameplay better and more stable. Still there: very very minor stutters (not a focus), blurry
 cutscene shots, and no loading screen between sections (the game froze for a couple of seconds instead, for
@@ -41,13 +60,23 @@ only 3–7 Hz in gameplay while the game held 30 FPS (see the performance issue 
 | 2026-10-17 | **The game plays on the console**: boot to the training level by hand, steady 20 FPS | Switch |
 | 2026-10-17 | Version 0.8 tagged (NRO `688d985e`): no audio static, tail and shadows right, caches work | Switch |
 | 2026-10-17 | **Steady 30 FPS in gameplay** (NRO `0678347d`, vertex attributes unpacked on the GPU) | Switch |
+| 2026-10-18 | Candidate recursive no-match fix built; user reports passing former freeze point with an FPS drop | Linux, Switch report |
+| 2026-10-18 | Diagnostic run passed the former Windmill presentation stall and reached MPBeach; no crash logged | Switch, overclocked |
 
-**Priority (2026-10-17):** get to a visible, playable game scene as soon as possible. The Linux bench may use
+**Previous priority (2026-10-17):** get to a visible, playable game scene as soon as possible. The Linux bench may use
 a different resolution or aspect ratio from the Switch; exact aspect-ratio matching can wait. The current
 640×480 back-buffer capture shows geometry projected far outside the view, so aspect ratio alone does not
 explain the black screen.
 
-Next milestones: the known issues closed on the console; then 60 FPS and input latency.
+**Priority (2026-10-18):** investigate the sustained no-resource Windmill hitches with a narrowly measured
+renderer change and source-level CPU evidence. Keep the single-player FPS-drop report separate; the latest
+capture passed the former stall but omitted sampling profiling. Continue the intro packet/refill investigation
+without assuming that shader-cache placement solved it.
+
+Next milestones: use Docker to test a scoped renderer optimization and preserve the missing profiler as a
+limitation on this run; later, correlate function samples and GPU timing with the no-resource Windmill hitches.
+Keep the reported single-player FPS drop separate. Revisit the intro packet producer and APU address handling
+using aligned PCM/video/packet evidence, then continue with the remaining issues and performance headroom.
 
 ### Known issues
 
@@ -87,15 +116,21 @@ and say how.
     bits. A stream segment at `0x7415D7A0` was read from `0x0015D7A0`, the game's code, played as
     full-scale noise.
   - Fix (commit c130f84): addresses in `[0x08000000, 0x80000000)` are VAs. Linux capture: no noise left.
-- [ ] **Intro movie audio stops after under a second** (Switch and Linux). **Still silent on NRO
-  `688d985e`** (user report, 2026-10-17) with the shader cache in place; lower priority than performance.
-  - Culprit: the movie queues 0.8 s of audio (two ADPCM segments per channel) and only refills from
-    packet-completion callbacks. Its first frames stalled 4.3 s on the console compiling shaders and NVK
-    pipelines (0.5 s on Linux), the stream starved, and the player never refilled. The shader/pipeline
-    cache that should prevent the compiles was written to Burnout 3's folder `sdmc:/switch/b3x/`
-    (hard-coded in the toolkit), which does not exist: nothing was ever cached.
-  - Fix (commit 0d9fb5c): the cache folder is `XBOXRECOMP_SWITCH_DIR`, set to `sdmc:/switch/conker/`. If the
-    first frames still stall on a cold cache, prewarm or keep the APU fed during compiles.
+- [ ] **Intro movie audio stops after under a second** (Switch and Linux).
+  - Current evidence: the movie contains 227 packets and later audio for all four mono tracks. The game
+    queues two ADPCM packets per track, then completion callbacks and IRQ/DPC execute but the stream lookup
+    returns no next buffer and no later XMV packet is submitted. A 10-second Docker PCM dump had nonzero
+    samples from 0.30–1.40 seconds after audio-device startup, followed by exact zero through 10 seconds.
+    The log opened `BootIntro.xmv`, but does not align movie start with the PCM clock.
+  - Historical hypothesis: early first-use shader/pipeline stalls may have drained the initial 0.8–0.9 s
+    queue. The cache folder was corrected by `0d9fb5c`, but later traces saw the cutoff with zero shader
+    compiles; cache placement alone did not resolve it. Early logs show movie/APU initialization, while the
+    user's recollection is that sound played during the early black-menu iterations. The earliest logs did
+    not record audio samples, so the remembered sound duration is not independently measured.
+  - Further lead: `c130f84` changed APU address handling for VAs above 128 MB after the initial build. Compare
+    the four stream segment/descriptor addresses before changing that fix or the guest XMV producer. The
+    black menu itself was a separate renderer path. Details are in `source-notes/09-bringup-log.md` and
+    conker-nx `docs/09-bringup-log.md`; no audio fix is confirmed.
 - [x] **Conker's tail draws magenta** (Switch and Linux).
   - Culprit: the tail fur samples a 64×64 `SZ_A8Y8` and a 64×64 `SZ_G8B8` texture; neither had a decoder,
     so both were uploaded as the undecodable-texture magenta.
@@ -177,6 +212,22 @@ and say how.
     `31500df5` used it 12 times).
 - [ ] **Frame rate drops when the camera moves** (Switch, NRO `688d985e`, user report). Not reported on NRO
   `0678347d`; re-check when looking for 60 FPS.
+- [x] **No-match recursive child search caused an invalid recursion or retry loop** (Switch, candidate NRO
+  `630412bd`, 2026-10-18). The first guard avoided the sentinel recursion but could repeat the same search
+  without advancing. The branch now takes the exhausted-child path; the user reports the latest trial passed
+  the previous freeze point without crashing or stalling. No host runtime log was captured.
+- [ ] **Windmill presentation stall and severe long frames** (Switch, NROs `e037bd66` and `5924ba1f`). The
+  profile-2 `e037bd66` log stopped presenting at frames 2,830–2,831 (1,902/2,086 ms), with 75.1% of late
+  game-main samples in `sub_000139D0`. The later overclocked `5924ba1f` run passed that point and reached
+  MPBeach; 95 Windmill frames still took at least 50 ms, 90 without shader compilation or texture upload.
+  No function profile was enabled in the later run, so the cause remains unlocated. Keep guest tree semantics
+  unchanged. The Docker save route cannot select Windmill; use it for build/correctness checks and a scoped
+  renderer experiment, not to claim a Switch speedup.
+- [ ] **FPS drops at the former recursive-walk freeze point** (Switch, candidate `630412bd`, user report
+  2026-10-18). The `f976b53f` log's 433 ms frame at 3,533 predates the no-match correction and does not
+  measure its cost. The `5924ba1f` route passed the earlier Windmill stop but was overclocked, unprofiled,
+  and did not mark the user's exact single-player event. The report remains unmeasured; compare frame time,
+  draw count, guest CPU, and renderer samples from a repeatable save before optimizing the tree traversal.
 - [x] **Switch runs at 20 FPS** (front end 540–860 draws; gameplay in the training level 526 draws, steady
   50 ms frames, NRO `e807fd88`). **30 FPS since NRO `0678347d`.**
   - Culprit: the GPU executor, about 80 % of a core, spent a fifth of its time converting vertex
@@ -715,3 +766,60 @@ Frame rate: 25–30 FPS in the training level with 20 FPS stretches (executor ~7
 Windmill (game thread 65–91 %). First visits to ThroneRoom and Windmill stalled 4–6 s compiling 18–20
 shaders. The guide's newer optimisation findings (fourth core, console PGO, LTO, code ordering, executor
 copies) are recorded as candidates in conker-nx `docs/06-performance.md` (and [Switch performance](../../../03-switch-performance.md)).
+
+## 2026-10-18: recursive-walk watchdog, candidate fix and user replay report
+
+The captured Switch log from NRO `f976b53f` continued after the earlier frame-2,149 check. It reached frame
+3,533, where a frame took 433 ms and the performance window fell to 14.3 FPS. It then stopped presenting.
+Watchdog samples at 20 and 40 seconds showed 99% game-thread CPU and the same stack and guest ESP. The
+innermost return site, `0x00355C85`, is the call from `sub_00355B40` to `sub_00354610`, which searches a
+collection of 32-byte entries and returns `base - 32` when it finds no match.
+
+The previous guard intercepted that sentinel to avoid passing it to `sub_00355430`, but resumed at
+`loc_00355C91`. If children remained unprocessed, its condition sent execution back to `loc_00355C40`,
+repeating the same search without changing the parent or its input. This is the likely retry loop; the
+watchdog does not record the guest instruction pointer, so the exact instruction is inferred from the
+unchanged stack and generated control flow.
+
+The guard now jumps to `loc_00355C9F` on a no-match result. That takes the existing exhausted-child path and
+continues parent processing. The patch is kept in conker-nx `tools/regen.sh` because `gen/` is ignored.
+Linux Vulkan rebuilt in `conker-dev`, and a live startup reached frame 534 at about 53 FPS without a
+`[CRASH]`, `[ICALL]`, or `[STUB]` report. Switch NRO `630412bd` (MD5
+`630412bd7708c8c733a1625c05e1301c`, ELF MD5 `8c204512da3c88dc9066dc60c88a3b91`) was built and archived as
+`analysis/elf_archive/conker-vulkan_630412bd.{nro,elf}`.
+
+The host nxlink transcript for the first launch attempt (`run/net_logs/20261018-010453.log`) showed
+32,065,659 bytes sent (41.53%) before the local stdio listener failed to bind with `Address already in use`.
+The retry (`run/net_logs/20261018-010536.log`) could not connect. The user later reported that the latest
+test did not crash or stall at the old freeze point, but it did show an FPS drop there. No guest runtime log
+was captured, so the result supports the fix but does not verify which image ran or quantify its frame time.
+
+Track that slowdown separately. The 433 ms frame on `f976b53f` marks the location to profile, but it cannot
+establish the cost of the corrected build. Get a runtime log from the fixed NRO and compare frame time, draw
+count and guest-thread CPU around the dip before changing the traversal for speed.
+
+
+## 2026-10-18: overclocked diagnostic run passed the Windmill presentation stop
+
+Conker-nx NRO `5924ba1f` (`run/net_logs/20261018-030841.log`) loaded Frontend, Windmill, Frontend again,
+`Mp_Frontend`, and `MPBeach`. It passed the previous frame-2,831 presentation stop, continued through at
+least frame 6,903 in Windmill, and reached frame 14,282. It was run overclocked, so FPS is diagnostic context
+and not a stock-clock benchmark. Across 32 Windmill FPS windows the range was 21.9–34.7 FPS with vblank near
+60 Hz. Ninety-five Windmill frames took at least 50 ms; 51 took at least 100 ms and 50 at least 200 ms, with
+a 608 ms maximum. Ninety of those frames reported neither shader compilations nor texture uploads, and no
+shaders compiled in Windmill. This excludes those logged resource events for most hitches but does not
+identify CPU, driver, GPU, wait, or uninstrumented resource cost.
+
+The full run logged 444 hitches; the maximum was 3,570 ms in MPBeach while 20 shaders compiled in 2,069 ms.
+Other MPBeach long hitches had no shader or meaningful texture work. Audio remained at 1,500 APU frames/s
+with zero gaps, underruns, or dropped buffers. There was no crash/exception/watchdog or pending PGRAPH NOP;
+nxlink reset with exit code 0. The NRO omitted `RECOMP_NX_PROFILE=2`; no `[profile]` or `[tree-insert-diag]`
+line appeared. The tree diagnostic only reports fix-ups at 128 iterations and aggregates every 16,384 calls,
+so this weakens the suspected `sub_000139D0` loop for this route but does not prove the function was never
+called. Preserve guest semantics until a function-level capture supports a specific change.
+
+The vertex-constant cache remains a copy-reduction experiment: its Windmill counters reused 44–64% of blocks,
+but cache-on/off Switch FPS ranges overlapped in one run per setting. A 60-second Docker A/B on the current
+front-end route settled at 59.9–60.0 FPS for both settings and recorded zero constant-block reuse in both;
+that route does not exercise the Windmill opportunity and lavapipe FPS is not Switch evidence. The cache has
+not demonstrated an FPS gain.
