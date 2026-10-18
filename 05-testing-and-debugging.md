@@ -15,6 +15,26 @@ untranslated instructions, wrong numeric results) have their own page:
 
 Use full-memory title takeover when the port needs more memory than applet mode provides. Record handheld/docked mode and clocks for performance runs.
 
+## Automation boundaries
+
+Automate the repeatable work at each layer, but state what evidence the automation produces. A successful
+compile proves that a toolchain emitted an artifact; it does not prove that the artifact launched, reached
+game code, rendered a scene or ran on the console.
+
+| Work | Good unattended coverage | What still needs a check |
+|---|---|---|
+| Analysis and builds | Run pinned tools and build scripts; keep exit status and artifact identity. | Review generated-code summaries and warnings about missed functions or unsupported instructions. |
+| Host smoke run | Timed launch, fresh save/cache, logs and periodic frames. | Confirm the intended milestone; a timeout-killed run is not a pass by itself. |
+| Test-scene route | Script input, load a known save, or use a debug route. | Verify that input reaches the active backend and the route reaches its target scene. |
+| Logs and performance | Capture crash output, progress markers, frame timing and profiles. | Parse failure signals and resolve addresses against the exact build. |
+| Console upload and launch | Script transfer and launch once the homebrew loader or debugger is ready. | Opening that loader and confirming launch mode or device state may still need a person or hardware control. |
+| Console gameplay and visuals | Capture counters and profiles during a repeatable route. | Check image, sound, controls, transitions and performance on real hardware. |
+| Evidence retrieval | Stream logs and artifacts the runtime sends over the network. | Transfer files left on the SD card, such as binary profiles or frame dumps. |
+
+For every automated run, define a positive milestone and explicit failure checks: expected scene/progress
+marker, no crash or watchdog report, no unresolved calls for the covered route, and a captured frame or
+other observable result when graphics matter. Keep capture review separate from the program's exit status.
+
 ### Desktop bench
 
 - Build for the console's CPU architecture (an AArch64 Linux container on an ARM machine): code generation,
@@ -84,6 +104,13 @@ targets) next to the presented frame. Check target address and format, tiled lay
 order, depth state, texture bytes/mips and shader inputs. A format census, raw guest-memory dump and pixel
 readback can distinguish bad source data from bad shader/renderer translation. Dump each generated shader
 with the key it was built from.
+
+When the renderer keeps a guest surface in a host image (a depth buffer, a render target) and the title
+reads that memory back as a texture, reproduce the bytes, not one interpretation of them. Titles reinterpret
+surfaces: Conker samples its Z24S8 depth buffer as two different 32-bit colour formats in the same frame,
+and its depth of field takes alpha from the depth's high byte in one of them. Store the converted surface in
+the guest's byte order and let each declared format pick its channels (an image-view swizzle on Vulkan);
+check every format the frame trace shows reading that address.
 
 For command or MMIO traces, keep raw register values and decode each field against its exact mask in the
 matching hardware header or emulator source before assigning meaning. An incorrect bit label can create a

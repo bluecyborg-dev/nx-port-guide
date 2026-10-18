@@ -70,6 +70,33 @@ Review the log for frame/FPS progress, `[STUB]` or `[ICALL]` unresolved targets,
 exceptions. If graphics evidence is useful, enable the runtime frame dump as in `tools/run_linux.sh`; keep
 captures with the matching run log. For a hang, `tools/snap_linux.sh` can capture host backtraces while the
 Linux process is live. Record the symptom, cause, fix, and evidence in [09-bringup-log.md](source-notes/09-bringup-log.md).
+The example intentionally tolerates the timeout with `|| true`; inspect its log and milestone evidence rather
+than treating the shell exit status as a pass.
+
+### Scripted and live Linux routes
+
+For a known route, `tools/run_linux.sh` starts the Linux executable in Docker, sends timed controller input,
+stops it after a fixed interval and writes `run/run.log` plus periodic BMP frames under `run/d/`:
+
+```sh
+PAD='20000:start:300,30000:a:400' SECS=120 DUMPN=30 tools/run_linux.sh
+```
+
+The timestamps are measured from the title's first controller read. The script uses `run/save/`; use the
+separate-save command above when checking a fresh cache or first boot. For a route whose timing is not yet
+known, use the live bench and inspect a frame between presses:
+
+```sh
+tools/live_linux.sh start
+tools/live_linux.sh press start:400
+tools/live_linux.sh frame
+tools/live_linux.sh log 50
+tools/live_linux.sh stop
+```
+
+`live_linux.sh` defaults to a fresh save directory and keeps only a bounded set of recent frame dumps. These
+helpers automate Linux testing only; the lavapipe result does not validate the Switch NVK driver or console
+performance.
 
 ## 4. Build and stage the Switch NRO
 
@@ -78,6 +105,9 @@ After the Linux correctness pass, build the Vulkan NRO using the native devkitPr
 ```sh
 VULKAN=1 STAGE_GAME=0 bash switch/build.sh
 ```
+
+Docker is used for Conker's Linux correctness bench. The Switch NRO build currently uses native devkitPro;
+the Dockerized Switch build procedure in the source notes has not yet been run for Conker.
 
 The script configures `build/switch-vk/`, runs Ninja, and stages
 `switch_sd/switch/conker/conker-vulkan.nro`. `STAGE_GAME=0` leaves the large extracted disc copy on the
@@ -107,6 +137,18 @@ stdout/stderr in `run/net_logs/<timestamp>.log`; `latest.log` points to the newe
 attached while the console process keeps its NetLoader connection open. After it closes, inspect the log for
 the final frame count, watchdog report, unresolved calls, and exception. Runtime arguments are limited to
 roughly 240 characters by the wrapper.
+
+The initial Homebrew Menu and NetLoader steps are manual. Once NetLoader is open, upload, launch and log
+capture run from the host script. Conker's normal Switch XInput path reads native libnx controllers directly,
+so do not assume the scripted Xbox USB-pad path used by the Linux bench will drive hardware gameplay. Current
+console play routes use a physical controller; a repeatable unattended route needs a save/debug entry point or
+test input wired into the native Switch input path.
+
+FPS/performance and profiler summaries can be captured in the streamed log. `tools/prof_log_report.py <log> <elf>`
+resolves the console's periodic text profile summaries against the matching ELF; full samples in
+`prof.bin` and frame/surface dumps remain on the SD card and need a separate transfer. FTP/MTP retrieval is
+not yet validated for this project, so log streaming is more automated than screenshot or full-profile
+collection.
 
 If a new `[ICALL]` target appears, inspect it in the XBE and confirm it is a function entry before adding a
 seed, then repeat the full regeneration, container pass, NRO build, and upload. If the failure is a runtime

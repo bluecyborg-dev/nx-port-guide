@@ -14,8 +14,8 @@ much smoother and gameplay better and more stable. **Focus: the known issues (cu
 screens), then more headroom** (60 FPS if possible, low input lag) without lowering quality.
 
 **Builds:** Linux bench conker-nx `build/linux-vk/conker_recomp`. Newest Switch NRO
-conker-nx `analysis/elf_archive/conker-vulkan_0f38c4dc.{nro,elf}` (the 30 FPS build plus the loading-screen present),
-not yet run on hardware.
+conker-nx `analysis/elf_archive/conker-vulkan_084306cc.{nro,elf}` (the 30 FPS build plus the loading-screen present
+and the depth-of-field byte order), not yet run on hardware.
 
 **Last hardware run (2026-10-17, NRO `0678347d`, log conker-nx `run/net_logs/20261017-152423.log`):** played by the
 user. 30.0 FPS in 34 of the run's 10-second windows and 29–30 in most others; menu transitions a lot
@@ -106,18 +106,26 @@ and say how.
     shadow); the Vulkan samplers always used transparent black, and the shadow passes multiply the scene
     by the sample.
   - Fix (commit d300139): the sampler takes the nearest fixed border colour, colour before alpha.
-- [ ] **Some cutscene shots blurry, some sharp** (Switch, user report). **Still there on NRO `688d985e`**:
-  the depth fix below did not solve it.
-  - Culprit: the depth of field reads the Z24S8 depth buffer as a `LIN_R8G8B8A8` texture to decide which
-    pixels to blur; depth lives in a Vulkan image and never reached guest memory, so the mask came from
-    stale bytes. (The hangover shot at the start of the training level is blurred on purpose.)
-  - Fix (commit 00f1cb4): a texture at a depth buffer's address is a colour image converted from the depth
-    on the GPU (R G B = the 24-bit depth's bytes). The title tavern now blurs its near foreground and keeps
-    the bar sharp; not yet compared with the original game.
+- [ ] **Some cutscene shots blurry, some sharp** (Switch, user report). Still there on NRO `688d985e` and
+  `0678347d`. **Fixed on the Linux bench, verify on the console** (NRO `084306cc`).
+  - Culprit, in two parts. (1) The game reads its Z24S8 depth buffer as a colour texture; the depth lived
+    only in a Vulkan image, so the texture came from stale guest bytes (fixed in 00f1cb4 by converting the
+    depth on the GPU). (2) That conversion wrote the texels of one format, `LIN_R8G8B8A8` (0x41), which is
+    how the glow pass reads the depth. The cutscene depth of field reads it as `LIN_A8B8G8R8` (0x3F), where
+    alpha is the depth's high byte and blue its middle byte. Its six combiner stages compare those two
+    bytes with a focus constant (`0xED…35`), scale the difference by 16 and square it as (2a − 1)², so
+    pixels at the focus depth stay sharp and nearer and farther ones take the blurred image. With alpha 0
+    from the wrong byte order the result was full blur on every pixel of every shot that used it (the
+    near grass sharp and Conker blurred in the wake-up scene, for example).
+  - Fix: the conversion writes the dword `(z24 << 8) | stencil` as its bytes in memory order and each
+    guest format samples it through a view with that format's channel swizzle (`depth_texture_view()` in
+    `nv2a_vk.c`: 0x41, 0x3F, 0x40, 0x12, 0x1E). The wake-up scene now opens blurred, then holds Conker in
+    focus with the near flowers and the background soft. Stencil is still not converted (the depth of
+    field does not use it).
 - [ ] **No loading screen between sections; the game looks frozen for a few seconds instead** (Switch,
   user report on NRO `0678347d`: entering the area with the first weapon in the training level; the same
   happens loading the training level from the profile menu on Linux). **Fixed on the Linux bench, verify
-  on the console** (NRO `0f38c4dc`).
+  on the console** (NRO `084306cc`).
   - Culprit: Conker's loader never flips. Each loading step draws a progress-bar sliver into the back
     buffer (`80964000`) and then copies the whole back buffer into the front one (`80A90000`, the buffer
     the CRTC scans out) with a full-screen quad, a fence after each pair: 13,400 draws and one flip in 13.6
@@ -665,4 +673,45 @@ every vblank, the renderer only presented on flips. Fix: `scanout_present()` in 
 presents the scanned-out buffer after a draw into it when the last flip is at least 100 ms old, at most
 every 33 ms (`RECOMP_SCANOUT_PRESENT=0` turns it off; normal frames never draw into the scanned-out buffer,
 and the 100 ms rule keeps a half-drawn frame from being shown). The Linux bench now shows the "Loading..."
-screen with its progress bar; NRO `0f38c4dc` carries it to the console.
+screen with its progress bar; NRO `084306cc` carries it to the console.
+
+## 2026-10-17: cutscene depth of field reads the depth in its own byte order
+
+The cutscene blur was still there on the console after the depth-as-texture change. Frame traces armed every
+2 s through the training level's wake-up scene (`RECOMP_FRAME_TRACE` re-armed in a loop; cutscene frames have
+~272 draws and two draws that sample the depth, gameplay frames 753 and one) found a second reader of the
+depth buffer: a full-screen pass into the back buffer, blend ONE / ONE_MINUS_SRC_ALPHA, alpha test `> 0`,
+stage 0 = depth `80BC0000` as format **0x3F `LIN_A8B8G8R8`**, stage 1 = the blurred 128×128 `80D4C280`. The
+glow pass reads the same buffer as 0x41 `LIN_R8G8B8A8`, the only order the conversion wrote.
+
+`RECOMP_PSH_DUMP=1` gave its six combiner stages: `R0 = T0 − c0` with `c0 = 0xED000035` (alpha: depth high
+byte − 0xED; blue: middle byte − 0x35), alpha × 4 × 4, plus a scaled `R0` and the blue term (a 16-bit depth
+compare built from 8-bit combiners), then `(2a − 1)²`; the final combiner outputs `a × blurred` with alpha
+`a`. So the focus depth gives `a = 0` (sharp) and both sides blur. In 0x3F the alpha channel is the depth's
+high byte; the conversion had put the stencil (0) there, `R0.a` went to −1 and the square made `a = 1`:
+every pixel took the blurred image whenever a shot used the effect.
+
+Fix: `depth_as_texture()` writes the dword's four bytes in memory order and `depth_texture_view()` hands each
+guest format a view with its decode as a component swizzle (0x41, 0x3F, 0x40, 0x12, 0x1E; the glow pass's
+0x41 texels are unchanged). On the Linux bench the wake-up scene now opens blurred (waking up), then keeps
+Conker sharp with the near flowers and the background soft; before, the near grass was sharp and Conker
+blurred. NRO `084306cc` carries this and the loading-screen present to the console.
+
+## 2026-10-17: console run of NRO `084306cc`; cutscene depth of field off by default
+
+The user played further than before (log conker-nx `run/net_logs/20261017-163543.log`): TrainingLevel, TrainingCave,
+ThroneRoom, Windmill, with no crash or `[ICALL]`. Gameplay "better than ever"; the training-area loads no
+longer freeze (the scan-out present ran; no multi-second frame on those loads). Some cutscenes are clear now
+(talking with Birdy) but others still blur the whole screen. Only `BootIntro.xmv` is opened in the whole run,
+so every cutscene is in-engine and the blur is the game's depth of field as we draw it. At the user's
+request it is off by default: `RECOMP_DOF=0` (set in `src/main.c`) makes the executor drop any draw that
+samples the depth buffer it is bound to, which in Conker is only the depth-of-field composite (the glow
+pass reads the depth with no depth buffer bound). `RECOMP_DOF=1` brings it back for further work. Linux bench
+check: the training level's wake-up scene is sharp from the first shot after waking, speech bubbles
+readable; only the opening "eyes opening" shot stays soft (a separate, apparently deliberate effect).
+Console build: NRO `cfd4c805`.
+
+Frame rate: 25–30 FPS in the training level with 20 FPS stretches (executor ~70 % of a core), 24–25 FPS in
+Windmill (game thread 65–91 %). First visits to ThroneRoom and Windmill stalled 4–6 s compiling 18–20
+shaders. The guide's newer optimisation findings (fourth core, console PGO, LTO, code ordering, executor
+copies) are recorded as candidates in conker-nx `docs/06-performance.md` (and [Switch performance](../../../03-switch-performance.md)).

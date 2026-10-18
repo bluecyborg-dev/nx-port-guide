@@ -40,6 +40,7 @@ string at about 256 characters).
 | `RECOMP_PSH_DUMP=1` | Each new pixel-shader key (combiner stages, final combiner) and the GLSL generated for it. |
 | `RECOMP_FRAME_TRACE_DRAWS=<lo>-<hi>` (conker-nx) | Frame-trace draws lo..hi of every frame (counted from 0 after each flip). Reaches inside a long frame that never flips, such as a loading screen, which a flag file armed at a flip cannot time. |
 | `RECOMP_SURF_STATS=1` (conker-nx) | For every frame over 2,000 draws, `[surfstats]` lines: draws per target surface, the scan-out address (`PCRTC_START`) and how often it changed, control-method counts (`0x0100`–`0x01FF`, semaphores, other subchannels) and the first 48 runs of consecutive draws to one surface. |
+| `RECOMP_DOF=0` (conker-nx; Conker's default) | Drop draws that sample the depth buffer they are bound to: Conker's cutscene depth of field. `=1` keeps them. |
 | `RECOMP_SCANOUT_PRESENT=0` (conker-nx) | Turn off presenting the scanned-out buffer when a title draws into it without flipping (on by default). |
 | **Frame bisection** | |
 | `RECOMP_SKIP_DRAWS=<lo>-<hi>` | Drop draws lo..hi of every frame (counted from 0 after each flip). |
@@ -63,6 +64,12 @@ string at about 256 characters).
 | `RECOMP_APU_TRACE`, `RECOMP_APU_VOICES`, `RECOMP_AUDIO_DUMP`, `RECOMP_APU_VOICE_DUMP` | Audio traces and dumps. Never judge audio from a traced run: the trace itself causes gaps. |
 | `*_LOG_SYNC=1`, `*_NO_LOG=1`, `RECOMP_QUIET` | Logging modes. |
 | `XBOX_LOG_LEVEL`, `RECOMP_USB_STATS`, `RECOMP_RUMBLE_TRACE` | Subsystem logs. |
+
+The scripted pad hooks synthesize reports in the emulated Xbox USB gamepad path. Before using them to claim
+that a menu or gameplay route is automated, confirm that the title's input calls reach that path on the
+target build. A platform layer that implements XInput by polling native controllers directly can bypass the
+USB shim; in that case, use a save/debug route or add test input to the active platform backend. Confirm the
+game observed each press in input logs or by checking the resulting screen.
 
 ## Log signals and build options
 
@@ -94,7 +101,11 @@ which is enough after a translator change.
   above RAM that `MmGetPhysicalAddress` passed through); before 2026-10-17 it masked them into low RAM. The
   GPU's `dma_resolve` falls back to using such an offset as a VA.
 - A texture whose address is a depth buffer (conker-nx, 2026-10-17): the Vulkan back end converts the depth
-  image to the guest's Z24S8 bytes in a full-screen pass and samples that (`depth_as_texture`).
+  image to the guest's Z24S8 dword bytes, in memory order, in a full-screen pass (`depth_as_texture`), and
+  samples them through a view whose component swizzle is the declared format's decode
+  (`depth_texture_view`: `LIN_R8G8B8A8`, `LIN_A8B8G8R8`, `LIN_B8G8R8A8`, `LIN_A8R8G8B8`, `LIN_X8R8G8B8`).
+  Conker reads the same depth buffer in two orders in one frame (glow 0x41, depth of field 0x3F); converting
+  to one format's texels blurred every cutscene pixel.
 - Presentation (conker-nx, 2026-10-17): the back end presents on `FLIP_INCREMENT_WRITE`/`FLIP_STALL`, plus
   the buffer `PCRTC_START` points at when a draw lands in it 100 ms or more after the last flip (at most
   every 33 ms). Titles that draw loading screens into the front buffer without flipping (Conker) need the
