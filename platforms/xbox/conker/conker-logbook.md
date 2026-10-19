@@ -887,5 +887,10 @@ Aggregate profile summaries include `memcmp`, `memmove`, `nv2a_pb_exec_method`, 
 renderer executor, but those shares are neither CPU-time percentages nor per-hitch attribution.
 
 Keep the multiplayer PGRAPH/guest-lock/OHCI freeze and the Windmill worm hitches as separate issues until a
-time-aligned capture connects them. Treat this profile-2 run as diagnostic rather than a performance
-benchmark. `sys-clk` was active, but the log did not verify the chosen profile or actual frequencies.
+time-aligned capture connects them. Priority order is MPBeach freeze diagnosis first, then Windmill worm-hitch
+optimization. In the hooked NOP path, the pushbuffer executor waits for the D3D PGRAPH wrapper to mark
+`s_trap_taken`; instrument that handoff, its IRQL/dispatch-lock and trap-lock stages, and the guest-lock holder
+before changing synchronization semantics. The OHCI depth-2 warning reports a raised global IRQL count but
+does not identify its owner or prove the same root cause. Treat this profile-2 run as diagnostic rather than a
+performance benchmark. `sys-clk` was active, but the log did not verify the chosen profile or actual
+frequencies.
