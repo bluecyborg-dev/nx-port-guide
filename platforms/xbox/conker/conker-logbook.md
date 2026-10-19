@@ -116,17 +116,29 @@ and say how.
     bits. A stream segment at `0x7415D7A0` was read from `0x0015D7A0`, the game's code, played as
     full-scale noise.
   - Fix (commit c130f84): addresses in `[0x08000000, 0x80000000)` are VAs. Linux capture: no noise left.
-- [ ] **Intro movie audio stops after under a second** (Switch and Linux).
+- [ ] **Intro movie audio stops after under a second on some builds** (Switch and Linux; current build comparison open).
   - Current evidence: the movie contains 227 packets and later audio for all four mono tracks. The game
     queues two ADPCM packets per track, then completion callbacks and IRQ/DPC execute but the stream lookup
     returns no next buffer and no later XMV packet is submitted. A 10-second Docker PCM dump had nonzero
     samples from 0.30–1.40 seconds after audio-device startup, followed by exact zero through 10 seconds.
     The log opened `BootIntro.xmv`, but does not align movie start with the PCM clock.
+  - First explicit failing hardware report reviewed: NRO `e807fd88`, log
+    `run/net_logs/20261017-064742.log`; the user reported that intro audio disappeared in under a second.
+    The first audio-output summary had peak `16810`, the next three had peak `0`, then later gameplay
+    summaries became nonzero. This supports a brief output followed by silence without giving an exact
+    cutoff time. A later hardware comparison confirmed that the reconstructed first-success source state
+    `52a4270` (NRO `6d26ed5d`) plays both picture and audio. This narrows the behavior to a revision/build
+    difference but does not identify the exact regression. The failed `e807fd88` run predates `c130f84`
+    and `0d9fb5c`; they did not introduce the first observed failure. The source diff from `52a4270` to
+    `66ef96c` has no APU, DirectSound, or XMV implementation changes. The later shader-cache correction
+    was a proposed stall mitigation, not a verified audio fix.
   - Historical hypothesis: early first-use shader/pipeline stalls may have drained the initial 0.8–0.9 s
     queue. The cache folder was corrected by `0d9fb5c`, but later traces saw the cutoff with zero shader
     compiles; cache placement alone did not resolve it. Early logs show movie/APU initialization, while the
     user's recollection is that sound played during the early black-menu iterations. The earliest logs did
-    not record audio samples, so the remembered sound duration is not independently measured.
+    not record audio samples, so the remembered sound duration is not independently measured from those
+    historical runs. A later direct hardware test did confirm picture and sound on the rebuilt `52a4270`
+    source state; that validates the source checkpoint, not the missing original NRO's exact behavior.
   - Further lead: `c130f84` changed APU address handling for VAs above 128 MB after the initial build. Compare
     the four stream segment/descriptor addresses before changing that fix or the guest XMV producer. The
     black menu itself was a separate renderer path. Details are in `source-notes/09-bringup-log.md` and
