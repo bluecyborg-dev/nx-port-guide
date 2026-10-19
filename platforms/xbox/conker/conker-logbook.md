@@ -835,3 +835,14 @@ but cache-on/off Switch FPS ranges overlapped in one run per setting. A 60-secon
 front-end route settled at 59.9–60.0 FPS for both settings and recorded zero constant-block reuse in both;
 that route does not exercise the Windmill opportunity and lavapipe FPS is not Switch evidence. The cache has
 not demonstrated an FPS gain.
+
+## 2026-10-19: profile-2 and GPU-timing diagnostic NRO sent to Switch
+
+NRO `545de116` (MD5 `545de116f420fcd449a26f576a768d0b`) was sent to `192.168.1.248` with profile-2 sampling,
+per-frame GPU timestamps, and the hang watchdog enabled. The capture is live in conker-nx
+`run/net_logs/20261019-012749.log`. The user said the Switch was overclocked. The runtime confirmed that
+`sys-clk` is running and left the requested clocks to its profile, avoiding a clock fight; the log does not
+read back the selected profile or actual MHz. Profile sampling and GPU timestamps started, the intro opened,
+and the game reached at least frame 595 without a logged crash at the latest check. Frame 3 took 3,203 ms
+with no shader compilation and 1.7 MB of texture work reported at 16 ms. The user should continue the prior
+Windmill route; preserve the final nxlink log and retrieve `prof.bin` from the SD card for stack analysis.
