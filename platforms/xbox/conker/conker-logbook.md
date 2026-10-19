@@ -894,3 +894,24 @@ before changing synchronization semantics. The OHCI depth-2 warning reports a ra
 does not identify its owner or prove the same root cause. Treat this profile-2 run as diagnostic rather than a
 performance benchmark. `sys-clk` was active, but the log did not verify the chosen profile or actual
 frequencies.
+
+## 2026-10-19: PGRAPH handoff tracing candidate prepared
+
+Following the MPBeach freeze, added runtime-gated per-NOP stage counters to candidate `bc1df101`.
+`RECOMP_PGRAPH_TRACE=1` records trap publication, IRQ assertion, D3D handler entry, runtime GIL suspension and
+resume around IRQL raise, PGRAPH trap-lock acquisition, `NSOURCE`, generated-handler return, and trap acknowledgement.
+When a hooked NOP remains pending, the existing two-second warning includes the current stage counts; normal
+runs produce no per-interrupt log flood. This narrows the next capture to the first missing handoff stage and
+does not alter lock, IRQL, or PGRAPH acknowledgement behavior. The counters do not directly instrument game
+critical-section ownership at `0x004E1674` or OHCI's IRQL state; correlate any renewed reports from those
+paths by timestamp with the PGRAPH summary.
+
+The Linux target compiled in `conker-dev`. A 10-second startup smoke run reached the startup asset/render path
+and handled `NOP(40)`, then ended at the deliberate timeout; it did not reproduce the Switch multiplayer
+freeze or exercise the stalled-NOP summary. Switch NRO `analysis/elf_archive/conker-vulkan_bc1df101.nro`
+(MD5 `bc1df1013c9a2f2bd266648b462438d5`) is paired with unstripped ELF
+`analysis/elf_archive/conker-vulkan_bc1df101.elf` (MD5 `582b754fe61d7383643a2551058f3266`, Build ID
+`d5aab6e23c1c54dce854a9c5e52ff9fc49e16e05`) and staged separately at
+`conker-nx/build/switch-vk-pgraph-trace-sd/switch/conker/conker-vulkan.nro`. Hardware validation is pending.
+Next launch should combine `RECOMP_NX_PROFILE=2`, `RECOMP_VK_GPU_TIMING=1`, the 60-second retained watchdog,
+and `RECOMP_PGRAPH_TRACE=1`; priority remains MPBeach freeze first, Windmill hitches second.
