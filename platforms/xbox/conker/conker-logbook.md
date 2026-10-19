@@ -3,17 +3,20 @@
 What was done to get Conker running, in order, with the evidence for each address. Newest at the bottom.
 Addresses are Conker PAL (title 0x4D530051) guest VAs.
 
-## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-18: Windmill diagnostic route completed)
+## Port status (mirror of conker-nx `docs/14-port-status.md`, milestone of 2026-10-19: intro-audio checkpoints rebuilt)
 
 Updated in the guide at major milestones only; the repo copy is the live one. Dated entries follow below.
 
-**Last milestone (2026-10-18):** diagnostic NRO `5924ba1f` passed the prior Windmill presentation stop at
-frame 2,831, ran through at least Windmill frame 6,903, then reached MPBeach through frame 14,282. This
-5–10 minute overclocked run had 95 Windmill hitches at least 50 ms, 90 without logged shader compilation or
-texture upload. It did not enable `RECOMP_NX_PROFILE=2`, so it cannot attribute those hitches to a function.
-The no-match child-search fix remains supported by the user's earlier replay report, while its reported FPS
-drop remains unmeasured. **Focus: use the available Docker route for a scoped renderer optimization and keep
-the guest CPU and renderer hot path as separate leads; do not claim a Switch FPS gain from this capture.**
+**Last milestone (2026-10-19):** the source states on either side of the first explicit intro-audio loss
+report have been rebuilt and archived. The pre-report state is `d386a80` (historical NRO `3f85b158`, rebuilt
+as `a79ad501`); the report state is `66ef96c` (historical NRO `e807fd88`, rebuilt as `c0be5d71`). Both
+original NROs were absent, so these are source-state reconstructions. The confirmed-audio control remains
+`6d26ed5d` from `52a4270`. The report commit contains profiler and hidden-seed changes only; the wider source
+interval also includes renderer work and the `fincstp`/`fdecstp` lifter fix. Neither interval contains APU,
+DirectSound, or XMV implementation edits, and the generated DSOUND/XMV function bodies match across all
+three source states. **Focus: hardware A/B the two adjacent reconstructions, with `6d26ed5d` as the positive
+control, before changing the audio path.** The MPBeach freeze and Windmill worm hitches remain open and
+deferred.
 
 **Previous milestone (2026-10-17):** **steady 30 FPS in gameplay on the console** (NRO `0678347d`, commit
 f67d461): vertex attributes the CPU used to convert per vertex are now fetched as stored and unpacked in the
@@ -27,6 +30,12 @@ sampling profiler; overclocked diagnostic capture). The comparable optimization 
 `analysis/elf_archive/conker-vulkan_e037bd66.{nro,elf}` with the vertex-constant cache enabled by default.
 Earlier candidate NRO `630412bd` contains the recursive no-match correction and the user's replay report; the
 reported FPS drop still has no directly marked single-player log.
+
+**Intro-audio checkpoints:** `analysis/elf_archive/conker-vulkan_a79ad501.{nro,elf}` is the reconstruction
+from source `d386a80`, immediately before the report run. `analysis/elf_archive/conker-vulkan_c0be5d71.{nro,elf}`
+is the reconstruction from source `66ef96c`, the report-state build. The prior positive control is
+`analysis/elf_archive/conker-vulkan_6d26ed5d.{nro,elf}` from `52a4270`, confirmed by the user to play both
+picture and sound. These two new reconstructions still need hardware listening tests.
 
 **Latest hardware capture (2026-10-18, diagnostic NRO `5924ba1f`, `run/net_logs/20261018-030841.log`):**
 the overclocked route passed Windmill frame 2,831 and continued through at least frame 6,903, then loaded
@@ -62,6 +71,7 @@ only 3–7 Hz in gameplay while the game held 30 FPS (see the performance issue 
 | 2026-10-17 | **Steady 30 FPS in gameplay** (NRO `0678347d`, vertex attributes unpacked on the GPU) | Switch |
 | 2026-10-18 | Candidate recursive no-match fix built; user reports passing former freeze point with an FPS drop | Linux, Switch report |
 | 2026-10-18 | Diagnostic run passed the former Windmill presentation stall and reached MPBeach; no crash logged | Switch, overclocked |
+| 2026-10-19 | Rebuilt the source checkpoints immediately before and at the first explicit intro-audio loss report | Linux build; Switch comparison pending |
 
 **Previous priority (2026-10-17):** get to a visible, playable game scene as soon as possible. The Linux bench may use
 a different resolution or aspect ratio from the Switch; exact aspect-ratio matching can wait. The current
@@ -73,10 +83,15 @@ renderer change and source-level CPU evidence. Keep the single-player FPS-drop r
 capture passed the former stall but omitted sampling profiling. Continue the intro packet/refill investigation
 without assuming that shader-cache placement solved it.
 
-Next milestones: use Docker to test a scoped renderer optimization and preserve the missing profiler as a
-limitation on this run; later, correlate function samples and GPU timing with the no-resource Windmill hitches.
-Keep the reported single-player FPS drop separate. Revisit the intro packet producer and APU address handling
-using aligned PCM/video/packet evidence, then continue with the remaining issues and performance headroom.
+**Priority (2026-10-19):** compare the intro-audio checkpoints on the Switch. Test `a79ad501` (pre-report),
+then `c0be5d71` (report state), with confirmed-audio `6d26ed5d` available as a positive control. Record if
+the music plays and when it stops. The original `3f85b158` and `e807fd88` binaries are absent; these new
+artifacts are reconstructions from their source states. Keep the MPBeach freeze and Windmill hitches deferred
+until the audio comparison is complete.
+
+Next milestone: complete the hardware audio A/B, then use the result to choose a targeted XMV/DirectSound
+producer or timing investigation. Later, resume the separate MPBeach and Windmill analyses with their existing
+diagnostic evidence.
 
 ### Known issues
 
@@ -143,6 +158,19 @@ and say how.
     the four stream segment/descriptor addresses before changing that fix or the guest XMV producer. The
     black menu itself was a separate renderer path. Details are in `source-notes/09-bringup-log.md` and
     conker-nx `docs/09-bringup-log.md`; no audio fix is confirmed.
+  - Checkpoint comparison (2026-10-19): the original last pre-report NRO `3f85b158` and first failing NRO
+    `e807fd88` were absent. Their source states were rebuilt as `a79ad501` from `d386a80` and `c0be5d71` from
+    `66ef96c`; both pairs are archived under conker-nx `analysis/elf_archive/` with matching unstripped
+    ELFs. The known-audio source state `52a4270` is separately archived as `6d26ed5d` and has direct user
+    confirmation of intro picture and sound. The pre-report log only shows APU startup and movie open, so it
+    does not confirm sound on that run. In the failing log, one audio summary has peak `16810`, the next
+    three have peak zero, and later gameplay output becomes nonzero; the log has no device gaps or underruns.
+    Commit `66ef96c` itself adds hidden seeds and profiler reporting. The wider source interval also includes
+    renderer changes and the `fincstp`/`fdecstp` lifter fix, but no APU, DirectSound, or XMV source edits.
+    Generated bodies for all 485 DSOUND and 84 XMV functions are byte-identical across `52a4270`, `d386a80`,
+    and `66ef96c`. This narrows direct translated-library changes but does not exclude changed game callers,
+    runtime scheduling, or timing. The two new reconstructions still need hardware A/B; no audio code was
+    changed in response to this comparison. Full hashes and details are in conker-nx `docs/09-bringup-log.md`.
 - [x] **Conker's tail draws magenta** (Switch and Linux).
   - Culprit: the tail fur samples a 64×64 `SZ_A8Y8` and a 64×64 `SZ_G8B8` texture; neither had a decoder,
     so both were uploaded as the undecodable-texture magenta.
@@ -641,10 +669,46 @@ optimising. Each was reproduced and fixed on the Linux bench:
 | User report | Cause | Fix |
 |---|---|---|
 | Brief "heavy rain / TV static" on menu selections, in the first cutscene, more often in gameplay | `apu_phys()` masked every APU address to 26 bits. DirectSound gives the APU `MmGetPhysicalAddress()` of its buffers, and for memory the game allocated above RAM (extended VMA, `0x74000000`) that is the VA passed through: a stream segment at `0x7415D7A0` was read from `0x0015D7A0`, the game's code | Addresses in `[0x08000000, 0x80000000)` are VAs (c130f84). Found by capturing the output (`RECOMP_AUDIO_DUMP`), measuring each 20 ms window's first-difference/signal energy ratio (white noise ≈ 2, music < 0.8), then a temporary per-voice detector in the voice processor that logged the noisy voice's format and stream-segment address: voice `v046`, 16-bit stereo stream, RMS 0.5 and ratio 1.8 (uniform random data) on segment `0x7415D7A0`, legitimate rain on segments in RAM |
-| Intro movie audio lost within a second | The movie (four mono ADPCM stream voices) queues two 0.4 s segments per channel and refills only from completion callbacks. Its first frames stalled (frame 3: 4,270 ms on the console, 434 ms on Linux), so both segments drained, DirectSound paused the starved voices and the player never refilled. The stall is first-use shader and pipeline compilation (the Linux sampler shows lavapipe's LLVM busy while the main thread yields); the console run had prewarmed "0 programs, 0 pipelines" because the toolkit's cache folder was Burnout 3's `sdmc:/switch/b3x/`, hard-coded, which does not exist on this card | Cache folder from `XBOXRECOMP_SWITCH_DIR`, set to `sdmc:/switch/conker/` (0d9fb5c). To verify on the console: the first run fills the cache, the second should keep the intro audio |
+| Intro movie audio lost within a second | Historical hypothesis: four mono ADPCM voices queue two roughly 0.4 s packets each; first-frame stalls might drain the queue before completion callbacks refill it. This was attributed to first-use shader/pipeline compilation and a cache path under Burnout 3's `sdmc:/switch/b3x/`. Later Linux traces reproduced the PCM cutoff with no shader compilations, and the cache correction did not establish a fix. The pre-report log records APU startup and `BootIntro.xmv` open, but no audio measurement. The first explicit failing report (`e807fd88`) has a nonzero first audio peak (`16810`), then three zero-peak summaries; later gameplay peaks are nonzero. There are no device gaps or underruns. The first-success source reconstruction (`52a4270`, NRO `6d26ed5d`) was confirmed audible by the user. Neither original NRO immediately before/at the report is available | Rebuild and compare adjacent source states before changing audio code: pre-report `d386a80` → NRO `a79ad501`, issue state `66ef96c` → NRO `c0be5d71`; use `6d26ed5d` as the positive control. No APU/DirectSound/XMV implementation changes occur in the two source intervals. All 485 generated DSOUND and 84 XMV function bodies match across the three source states. Hardware A/B remains pending. Details and full MD5s are in conker-nx `docs/09-bringup-log.md` (2026-10-19). |
 | Tail is purple | The tail fur samples a 64×64 `SZ_A8Y8` (`0x1A`) and a 64×64 `SZ_G8B8` (`0x28`) texture; no decoder, so the magenta placeholder | Decoders for `AY8`, `A8Y8`, `G8B8`, `R8B8` with xemu's channel placement (9882f42); undecodable formats are now named once in the log |
 | Two shadows following the character | The projected shadow maps (`PROJECT2D`, 128×128 R5G6B5) are sampled clamp-to-border with `SET_TEXTURE_BORDER_COLOR` `0x00FFFFFF`; Vulkan samplers always had a transparent black border, and the shadow passes multiply the scene (`DST_COLOR × ZERO`), so dark quads appeared wherever receivers reached past the map | Sampler takes the nearest fixed border colour, colour before alpha (d300139). A first attempt that chose by alpha first changed nothing; the frame trace's new stage-0 fields (`addr 00010404 border 00FFFFFF`) showed why |
 | Some cutscene shots blurry | Probably the game's depth of field and the deliberately blurred hangover shot | Not changed; compare with footage of the original first |
+
+## 2026-10-19: intro-audio source-state comparison
+
+The last hardware run before the first explicit sound-loss report was historical NRO `3f85b158` in
+`run/net_logs/20261017-020541.log`, built from source `d386a80`. The original NRO was absent. Its source
+state was rebuilt in an isolated worktree as `analysis/elf_archive/conker-vulkan_a79ad501.nro`, NRO MD5
+`a79ad50102c5803db4f0c0e4e7b7b1f7`, 77,093,061 bytes. The matching unstripped ELF is
+`analysis/elf_archive/conker-vulkan_a79ad501.elf`, MD5 `379c5682e0b5d1775cadb3727cba086b`. Its size matches
+the historical transfer size, but its hash differs from `3f85b158`, so label it a source-state
+reconstruction. The log shows APU initialization and `BootIntro.xmv` opening, but no signal measurement;
+it does not prove audible sound on that run.
+
+The first explicit failing run was historical NRO `e807fd88` in `run/net_logs/20261017-064742.log`, from
+source commit `66ef96c`. That original binary was also absent. Rebuilt and archived the report source state as
+`analysis/elf_archive/conker-vulkan_c0be5d71.nro`, NRO MD5
+`c0be5d71fa479abaece255c55d5ebb39`, 77,187,269 bytes, with matching unstripped ELF
+`analysis/elf_archive/conker-vulkan_c0be5d71.elf`, MD5 `e2ee5a9ac4bcea6bfdd1717cabe06233`. The linker
+produced both outputs; the build script's final staging copy failed when the disk filled. The completed NRO
+was copied into the archive and the ELF hard-linked there, then both hashes were verified. This is a
+source-state reconstruction, not the missing historical NRO.
+
+Commit `66ef96c` itself adds hidden-function seeds and profiler reporting. The full source interval from
+`d386a80` to `66ef96c` also includes renderer changes and commit `1bc623e` (`fincstp`/`fdecstp` support in
+the lifter), so it is not a one-change experiment. It contains no APU, DirectSound, or XMV implementation
+edits. Regenerated bodies for all 485 DSOUND and 84 XMV functions are byte-identical across `52a4270`,
+`d386a80`, and `66ef96c`. This narrows the search away from a direct change to those translated library
+functions while leaving game `.text`, caller state, scheduling, and runtime timing open. The separate
+confirmed-audio control is `analysis/elf_archive/conker-vulkan_6d26ed5d.{nro,elf}` from `52a4270`; the user
+confirmed both intro picture and sound on that reconstructed state.
+
+The failing log's first `[perf] audio out` peak is `16810`, followed by three zero-peak summaries; later
+gameplay summaries become nonzero. There are no device gaps, underruns, or dropped buffers. This supports
+brief intro output followed by silence but does not place the precise cutoff. The previous shader/pipeline
+stall explanation remains a hypothesis because later Linux traces reproduce the PCM cutoff without shader
+compiles. Neither new reconstruction has been played on Switch. Next, test `a79ad501`, then `c0be5d71`, and
+use audible `6d26ed5d` as a positive control. Do not change audio code until that comparison is recorded.
 
 Tooling added on the way: nxlink `KEY=VALUE` arguments are now applied inside `switch_boot()` (they came
 after it had read the profiler, clock and log switches, so the profiled run had no profile); a Linux sampling
