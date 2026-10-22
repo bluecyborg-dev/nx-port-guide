@@ -75,6 +75,87 @@ prepass, so skipping it is renderer work.
   (36-51 ms per frame) is now the limit with shadows on.
 - **Ranges between runs** are loose comparisons: rounds, zombie counts and spots differ.
 
+### What the PC decompilation explains (2026-10-18, reading only)
+
+Source: `refs/bo1-zombies-decompiled` (MisaDev4), a decompilation of the PC zombies engine. It was only used for the
+Bink cinematic fix before. It is a **modded** PC build: every `r_mod_*` dvar is the modder's, and flags and defaults
+can differ from the Xbox 360 build. Check each point against the 360 binary before relying on it. Read only; no code
+taken.
+
+- **What the job-queue polling waits for.** The jobs that return "not finished" and get requeued
+  (`r_workercmds.cpp`) wait on the renderer pipeline:
+  - `r_model_skin` (CPU skinning) waits while `R_DynamicFencePending()`;
+  - `fx_draw`, `fx_marks_draw` and `r_skin_cached_staticmodel` wait while `*dynamicBufferCurrentFrame` is a frame
+    older than the current one;
+  - `r_water_sim` waits on the GPU end fence, and `fx_update_remaining` on another job group.
+
+  `dynamicBufferCurrentFrame` goes back to 0 only when the render backend thread (BO1's "Backend") has copied the
+  previous frame's dynamic vertex data (skinned cache, glass, pre-tessellated indices) into its buffers
+  (`rb_backend.cpp`). So frame N+1's skin and effect jobs wait for Backend to finish uploading frame N, not for the
+  GPU. Our hooked callbacks `sub_825BBFD0` / `sub_825BC040`, which return 1 while `sub_825BBB88()` is non-zero, fit
+  `r_model_skin` / `fx_draw` with `sub_825BBB88` = `R_DynamicFencePending`.
+  **Improvement over the 100 µs throttle:** hook the store that releases the buffer and wake the waiting workers with
+  an event. That gives zero spinning and no sleep quantization.
+- **Skinned vertices are written by the CPU every frame.** Animated models are skinned on the CPU (32 bytes per
+  vertex) into two alternating 8 MB pools (`skinnedCacheVbPool`, retail 0x800000 each, `r_buffers.cpp` /
+  `r_dobj_skin.cpp`). The renderer's ~1-1.7 MB of vertex uploads per frame (~47k vertices) is most likely these.
+  - **Renderer:** find the two pools' addresses on the 360. Fetches from those ranges can then be copied without
+    hashing or comparing; they always change. This is a precise version of the "frequently changing data" path.
+  - **`r_fastSkin`** (bool, default 0, archive flag, so settable): reuses a model's cached skinning for up to 3
+    frames (`ageCount < 3`). That means less CPU skinning on the job workers; watch for stale-looking animation.
+- **Fewer zombie vertices.** `r_lodScaleSkinned` (default 1.0) and `r_lodBiasSkinned` (default 0) move animated models
+  to lower LODs sooner. That cuts CPU skinning, the vertex upload and GPU vertex work together, in exactly the crowd
+  frames that stutter (~1,370 draws). `r_lodScaleRigid` / `r_lodBiasRigid` do the same for static models.
+  These are cheat-flagged (see below), so write them directly.
+- **The sun shadow's real coverage lever** (correction to the "`min` closer to `off`" item):
+  - `sm_sunShadowScale` is clamped to 0.25-1.0 and only scales the shadow map's resolution, so it cannot go below
+    the 0.25 that `min` already uses.
+  - The sun map is two partitions, near and far (the two halves seen in EDRAM). Their coverage follows
+    `sm_sunSampleSizeNear` (world units per texel, default 0.25, range 0.0625-32), so a smaller value gathers fewer
+    casters.
+  - Changing the sun direction with `r_lightTweakSunDirection` resets it to 1.0.
+  - Its flags are 0x1080 (cheat), so write it directly, as `sm_sunShadowScale` already is.
+- **Cheat-protected dvars.** Flag 0x80 is the cheat flag. A change from the console or a script is refused while
+  `sv_cheats` is 0 ("is cheat protected", `universal/dvar.cpp`).
+  - On PC this covers `r_spotLightShadows`, `r_spotLightEntityShadows`, `r_spotLightSModelShadows`,
+    `sm_qualitySpotShadow`, `sm_strictCull`, `sm_fastSunShadow`, `r_stream` and the LOD dvars.
+  - Every console test so far loaded Kino with `devmap`, which turns cheats on. A normal launch from the menu may
+    silently drop the `min` preset's spot-shadow settings.
+  - `r_stream` is safe: the port writes it directly.
+  - To do: read the 360 `dvar_t` flags at runtime for every dvar we set, and switch cheat-flagged ones to direct
+    writes.
+- **`sm_sunEnable` / `sm_spotEnable`** are registered "from script" (flag 0x1000): the game's scripts own them. That fits
+  their doing nothing when set from the console.
+- **Other switches not tried yet:**
+  - `r_enableDlights` (multipass dynamic lights: extra passes for surfaces a muzzle flash or effect lights; possibly
+    the firing light flicker and part of the draw spikes);
+  - `r_superFlare_enable`, `r_grassEnable`, `r_zombieDisableEarthEffect`;
+  - `r_depthPrepass`, the game-side switch for the prepass. Our renderer-side skip showed the prepass saves more GPU
+    time than it costs, so this only matters if the game threads ever become the limit.
+
+### Candidates from the October 2026 port scan (2026-10-22, not tested)
+
+From reading the code of the newest ReXGlue ports (details and sources in
+`08-prior-port-research-database.md`, "October 2026 port scan"), checked against BO1's own profile:
+
+| Candidate | Why it fits BO1 | Size of the job |
+|---|---|---|
+| **Fixed flush-to-zero** (Dead Space 2) | BO1's generated code has ~27,000 `disableFlushMode` sites (Codex's count). Each real `msr fpcr` serializes the A57 | Small SDK change in the FPSCR wrapper; check for visual or physics regressions |
+| **`MaybeYield` backoff** (Dead Space 2; BO2 Requiem does the same) | `sched_yield` via `MaybeYield` was ~11 % of Main XThread's samples (2026-10-16 profile), from `NtYieldExecution` and the `XObject::Wait` spin. BO2 Requiem's parameters, from its decompiled `yield_cpu`: 32 yields in a row, each less than 1 ms after the previous one, and the 32nd sleeps 200 µs | Small SDK change |
+| **XMA kick without the context lock** (Dead Space 2) | XMA Decoder runs at ~20 % of a core and Sound Mix at ~32 %, and the same lock pattern is in our SDK (`XmaContext::Enable` takes `lock_`; every kick signals the event) | Small SDK change |
+| **Job completion wake** (Skate 3, USF4) | Same mechanism as the decompilation lead: the requeued jobs wait for a release. BO1 still logs ~324,000 requeues and ~177,000 100 µs sleeps per 10 s | Hook the release (or job completion), wake waiters; keep a timeout |
+| **Video recording off** (USF4) | BO1's process memory is at 3,185 of 3,189 MB, the same squeeze in which holding Capture crashed USF4 | One libnx call at start |
+| **Guest clock clamp after suspend** (Dead Space 2) | Stability after sleep or HOME | Small SDK change |
+| **Guest memcpy as host memcpy** (USF4) | Already on the checklist ("Native memcpy"). Measure the CRT copy routines' share of Main XThread first | Hook with a code hash and an audit mode |
+| **Re-judge the codegen bundle by thread CPU** (Bakugan) | Codex's Switch test of the combined codegen options compared only FPS, which sits at the 20 FPS cap. Bakugan's main thread fell 65-72 % → 50-59 % with the same set 2 options | Re-read the existing logs for Main XThread CPU %, or rerun with the profile on |
+| **CPU boost during loading, keyed on game state** (BO2 Requiem) | BO2's port turns boost on for client connection states 1-9 (connecting, loading) from `CL_Client_Frame`. BO1 already detects loading screens for its streaming switch, so the same point can toggle boost mode (CPU 1785 MHz; the GPU drops, which does not matter on a loading screen) | Small; the APM/sysclk code exists in the SDK |
+| A native build of the PC decompilation (BO2 Requiem's route) | `refs/bo1-zombies-decompiled` (MisaDev4) is a buildable Win32 tree that runs BO1 Zombies from the Steam files. It builds on KisakBlack (SwagSoftware, GPL-3.0), a reimplementation of BO1's PC multiplayer executable. Both are MSVC/x86/D3D9 only: the only Linux or AArch64 code in KisakBlack is in third-party libraries. Porting work: 26 inline-asm sites and SSE intrinsics in 11 files; Bink, Steam, DemonWare and nvapi to replace or stub; a D3D9 path to Vulkan; Windows API stand-ins. A closed-source WebAssembly build (vel.gg/bo1z) shows the engine already runs with 32-bit pointers on a non-x86 target with another renderer. BO2 Requiem's host (ILP32 loader, Windows stand-ins, DXVK on Horizon) is due as source in early November 2026; its beta is "playable at stock clocks, better overclocked". Assessment 2026-10-22: not easier than continuing the 360 port today, but likely a higher CPU ceiling. Re-check after BO2 Requiem's source release with a short feasibility test | Very large; a separate port (GPL-3.0, PC game files), not an optimization |
+| Lock-wait records in hitch reports (BO2 Requiem) | BO1's hitch windows show sampled stacks. A record per blocked thread (the lock or event, its owner, the caller and the start tick), written only when the lock is taken, would name who held what during a stall. The 1.7-4.4 s freezes from the network log sink (2026-10-17) were that kind of stall | Small, diagnostic only: the SDK's critical-section and `XObject::Wait` paths |
+| Frame latency (observation, not a candidate yet) | BO2 Requiem sets DXVK's frame latency to 1. BO1 keeps 4 submission slots in flight because 3 stalled the ring thread for 30-49 ms. If input lag is reported again, measure how many frames sit between the input read and the present before changing it | Measurement first |
+| Object-table reader gate (Skate 3) | **Low priority:** BO1 logs 12-40k lookups per second with only 50-718 per second contended (0.4-3.5 %) | Platform change |
+| deko3d renderer (`nx-mod/rexglue-sdk-nx`'s PM4 renderer) | BO1 issues ~860-1,400 draws per frame with ~25 µs of renderer CPU each; per-draw driver cost is what deko3d removes | Long-term project |
+| Already done | `skip_msr` (no `mtmsrd` global mutex); constants already uploaded by register bitmap (USF4's 256-register problem does not apply); BO1 renders 1040x608 2x MSAA in one EDRAM tile, so USF4's "one tile instead of three" does not apply. From BO2 Requiem: BO1 already raises the handheld GPU to 460.8 MHz through apm, already uses the same Mesa (NaGa 26.2.3), and cannot copy BO2's cooperative thread priorities (0x28-0x2E), because recompiled guest code spin-waits and needs the time-sliced 0x3B | — |
+
 ## 3. Snapshots
 
 ### Where we stood early on 2026-10-15 (Kino der Toten)

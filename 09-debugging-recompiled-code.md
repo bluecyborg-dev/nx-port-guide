@@ -88,3 +88,23 @@ An emulator with a debugger stub (xemu's GDB stub for the original Xbox) runs th
 guest memory page by page, search for floats and matrices, and compare a routine's output with the port's.
 Halt the guest before setting breakpoints and remove them before continuing. Use it when the original
 machine code is too long to emulate by hand or depends on hardware state.
+
+## Read a binary with Ghidra through REA
+
+[REA](https://github.com/morluto/rea) drives Ghidra headless and returns decompiled functions as JSON.
+Notes from a 24 MB AArch64 ELF with 25,000 functions:
+
+- **Import time.** Ghidra's analysis took about 9 minutes on a 10-core Mac. REA's default startup limit
+  (330 s) was too short; raise `REA_GHIDRA_STARTUP_TIMEOUT_MS` and the heap (`GHIDRA_HEADLESS_MAXMEM`, 6G
+  here), and drop slow analyzers you do not need with `REA_GHIDRA_DISABLED_ANALYZERS` (for example
+  `Decompiler Switch Analysis`).
+- **One import, many functions.** Each `rea decompile` or `rea function` command starts a fresh Ghidra and
+  analyzes the file again. For more than one function, run `rea --mcp` and talk to it over stdio
+  (JSON-RPC): `open_binary` once, then `batch_decompile` with every address, then `close_binary`. 44
+  functions took about 9 minutes after the import.
+- **Addresses.** Ghidra loads a position-independent ELF whose segments start at 0 at base 0x10000, so its
+  addresses are the ELF's plus 0x10000. Check one known symbol first: the first batch here decompiled the
+  wrong functions.
+- **Unstripped binaries** need no seeds: Ghidra takes the names from the symbol table. Get the address list
+  from the ELF's `.symtab` (or `nm`).
+- REA marks the decompiled output as untrusted content: it is data from the binary, not instructions.

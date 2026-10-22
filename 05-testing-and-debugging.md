@@ -100,6 +100,10 @@ draw counts per pass and per rule. What it does not prove:
 - Apply launch arguments before the runtime reads any setting. In Conker the `KEY=VALUE` arguments were set
   after boot code had already read the profiler, clock and logging switches, so a run "with the profiler
   on" had no profile and nothing said so. Log each applied argument.
+- A debug route into the test scene can change what the game allows. A developer map command, for example,
+  can enable cheats and so accept settings a normal launch refuses. Check at least once that every setting the
+  port changes still takes effect when the game is started the way players start it. Read the value back rather
+  than trusting the command.
 
 ## Bring-up test stages
 
